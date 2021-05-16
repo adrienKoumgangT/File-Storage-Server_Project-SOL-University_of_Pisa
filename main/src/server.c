@@ -46,11 +46,12 @@
 #define STR_LEN 80
 #define STR_SIZE (STR_LEN * sizeof(char))
 
-
+int tempo_dgb = 1;
 
 // server variables
 struct _config_for_server configurations_server;
 struct _hash_t *files_server;
+
 
 /**
 * reinitializes the server configurations
@@ -69,12 +70,13 @@ void reset_cfs(){
 
 }
 
+
 /**
 * check if the current server configurations
 * are well done for it to work
 *
 * @returns : -1 if server has bad configuration
-*              0 if is good configuration server
+*              1 if is good configuration server
 */
 int is_correct_cfs(){
     cfs *config = &configurations_server;
@@ -91,13 +93,17 @@ int is_correct_cfs(){
     if(config->socket_name == NULL)
         return -1;
 
-    return 0;
+    return 1;
 }
+
 
 /**
 * function that allows you to read the server configurations
 */
 void read_config_server(){
+
+fprintf(stdout, "%d : entro dentro read_config_server\n", tempo_dgb++);
+
     cfs *config = &configurations_server;
 
     fprintf(stdout, "information about the current server configuration :\n");
@@ -105,8 +111,12 @@ void read_config_server(){
                         config->thread_workers);
     fprintf(stdout, "size of memory for server = %ld\n",
                         config->size_memory);
-    fprintf(stdout, "name to use for the socket : %s",
+    fprintf(stdout, "name to use for the socket : %s\n",
                         config->socket_name);
+    fflush(stdout);
+
+fprintf(stdout, "%d : esco da read_config_server\n", tempo_dgb++);
+
 }
 
 
@@ -117,9 +127,12 @@ void read_config_server(){
 * @param str : string containing the configuration
 *
 * @returns : 0 to success
-*               -1 to failure
+*            -1 to failure
 **/
 int parsing_str_for_config_server( char* str ){
+
+fprintf(stdout, "%d : entro dentro parsing_str_for_config_server\n", tempo_dgb++);
+
     cfs *config = &configurations_server;
 
     if(!str || !config)
@@ -129,23 +142,23 @@ int parsing_str_for_config_server( char* str ){
     char *token = strtok_r(str, ":", &tmp);
 
     while(token){
+
         if(strncmp(token, t_w, sizeof(t_w)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
-fprintf(stdout, "token with t_w = %s\n", token);
-fflush(stdout);
-            if(!getNumber(token, &(config->thread_workers)))
+
+            if( (config->thread_workers = (unsigned long) getNumber(token)) < 0)
                 return -1;
         }else if(strncmp(token, s_m, sizeof(s_m)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
-fprintf(stdout, "token with t_w = %s\n", token);
-fflush(stdout);
-            if(!getNumber(token, &(config->size_memory)))
+
+            if( (config->size_memory = (unsigned long) getNumber(token)) < 0)
                 return -1;
-        }else if(strncmp(token, s_m, sizeof(t_w)) == 0){
+        }else if(strncmp(token, s_n, sizeof(t_w)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
+
             int n = strlen(token);
             // if the string is empty
             if(n <= 1)
@@ -161,6 +174,8 @@ fflush(stdout);
         token = strtok_r(NULL, ":", &tmp);
     }
 
+fprintf(stdout, "%d : esco da parsing_str_for_config_server\n", tempo_dgb++);
+
     return 0;
 }
 
@@ -175,6 +190,9 @@ fflush(stdout);
 *            - -1 on error
 */
 int config_file_parser_for_server( FILE* file ){
+
+fprintf(stdout, "%d : entro dentro config_file_parser_for_server\n", tempo_dgb++);
+
     int err;
 
     if(!file)
@@ -197,16 +215,16 @@ int config_file_parser_for_server( FILE* file ){
                 return EXIT_FAILURE;
         }
 
-        MINUS_ONE_EXIT(err, parsing_str_for_config_server(buffer),
-                                "config file");
+        IS_MINUS_ONE_ERROR(err, parsing_str_for_config_server(buffer),
+                                "config file error");
+
     }
 
     read_config_server();
 
-    if(is_correct_cfs() != 0){
-        fprintf(stderr, "Failure to configure server\n");
-        exit(EXIT_FAILURE);
-    }
+    IS_MINUS_ONE_ERROR(err, is_correct_cfs(), "Failure to configure server");
+
+fprintf(stdout, "%d : esco da config_file_parser_for_server\n", tempo_dgb++);
 
     return 0;
 
@@ -222,6 +240,8 @@ int config_file_parser_for_server( FILE* file ){
 */
 int config_server( char* path_file_config ){
 
+fprintf(stdout, "%d : entro dentro config_server\n", tempo_dgb++);
+
     int err;
     FILE *file_config;
 
@@ -232,6 +252,8 @@ int config_server( char* path_file_config ){
 
     read_config_server();
 
+fprintf(stdout, "%d : esco da config_server\n", tempo_dgb++);
+
     return 0;
 }
 
@@ -240,8 +262,11 @@ int config_server( char* path_file_config ){
 */
 void run_server( char* path_file_config ){
 
+fprintf(stdout, "%d : entro dentro run_server\n", tempo_dgb++);
     int err;
 
     MINUS_ONE_EXIT(err, config_server(path_file_config), "server configuration");
 
+
+fprintf(stdout, "%d : esco da run_server\n", tempo_dgb++);
 }
