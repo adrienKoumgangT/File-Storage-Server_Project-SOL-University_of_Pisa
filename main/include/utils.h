@@ -37,26 +37,58 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 
 #if !defined(UTILS_H)
 #define UTILS_H
+/*
+int isNumber( const char* s, long* n ){
 
-int getNumber( const char* s, unsigned long* n ){
-    if(!s || (strlen(s) == 0))
-        return -1;
+    if(s == NULL) return 1;
+    if(strlen(s) == 0) return 1;
 
     char *e = NULL;
     errno = 0;
+
     long val = strtol(s, &e, 10);
-    if(errno == ERANGE) return 1; // overflow / underflow
+    if(errno == ERANGE) return 2; // overflow / underflow
     if(e != NULL && *e == (char)0){
-        *n = (unsigned long) val;
+        *n = val;
         return 0;
     }
 
-    return -1;
+    return 1;
 }
+*/
 
+long getNumber( char* s ){
+
+    int base;
+    long val;
+    char *endptr, *str;
+
+    str = s;
+    base = 10;
+
+    errno = 0; /* To distinguish success/failure after call */
+    val = strtol(str, &endptr, base);
+
+    // Check for various errors
+    if((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN))
+            || (errno != 0 && val == 0)){
+        perror("strtol");
+        exit(EXIT_FAILURE);
+    }
+
+    if(endptr == str){
+        fprintf(stderr, "No digits were found\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // If we got here, strtol() successfully parsed a number
+    return val;
+
+}
 
 
 #endif
@@ -106,5 +138,30 @@ int getNumber( const char* s, unsigned long* n ){
 #define IS_MINUS_ONE_PRINT_ERROR(r, f, s) \
     if((r = (f)) == -1){ \
         fprintf(stderr, "MINUS_PRINT_ERROR : %s\n", s); \
+    }
+
+#endif
+
+
+#if !defined(PRINT_ERROR_AND_EXIT)
+#define PRINT_ERROR_AND_EXIT
+
+#define IS_NULL_ERROR(r, f, s) \
+    if((r = (f)) == NULL){ \
+        fprintf(stderr, "FATAL ERROR : %s\n", s); \
+        exit(EXIT_FAILURE); \
+    }
+
+#define IS_ZERO_ERROR(r, f, s) \
+    if((r = (f)) == 0){ \
+        fprintf(stderr, "FATAL ERROR : %s\n", s); \
+        exit(EXIT_FAILURE); \
+    }
+
+#define IS_MINUS_ONE_ERROR(r, f, s) \
+    if((r = (f)) == -1){ \
+        fprintf(stderr, "FATAL ERROR : %s\n", s); \
+        exit(EXIT_FAILURE); \
+    }
 
 #endif
