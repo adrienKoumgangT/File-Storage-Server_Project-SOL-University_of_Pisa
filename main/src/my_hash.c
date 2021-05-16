@@ -1,3 +1,27 @@
+/*
+* MIT License
+*
+* Copyright (c) 2021 Adrien Koumgang Tegantchouang
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+* SOFTWARE.
+*/
+
 /**
  * @file my_hash.c
  *
@@ -52,7 +76,7 @@
 
      ht->number_of_item = 0;
      ht->table = (data_hash_t **) malloc(size * sizeof(data_hash_t *));
-     id(!ht->table)
+     if(!ht->table)
          return NULL;
 
     ht->size = size;
@@ -74,7 +98,7 @@
 * @returns : - pointer to the data corresponding to the key.
 *            - If the key was not found, return NULL.
 */
- void* hash_find( hash_t* ht, char* key ){
+ data_hash_t* hash_find( const hash_t* ht, char* key ){
      if(!ht || !key)
         return NULL;
 
@@ -86,7 +110,7 @@
     ptr = ht->table[key_hash];
     while(ptr != NULL){
         if(ht->hash_key_compare(ptr->key, key))
-            return ptr->data;
+            return ptr;
         ptr = ptr->next;
     }
 
@@ -97,20 +121,22 @@
 * Insert new data into the hash table
 *
 * @param ht : the hash table
-* @param data : pointer to the new item's data
+* @param key : the key of then new item
+* @param data : then data of to the new item
 *
 * @returns : - NULL if the data is already present in the table
 *            -  data otherwise
 *
 * @exceptions : if one of the given parameters is NULL it returns NULL
 */
- data_hash_t* hash_insert( hash_t* ht, data_hash_t* data){
-     if(!ht || !data)
+ data_hash_t* hash_insert( hash_t* ht, char* key, char* data){
+     if(!ht || !key || !data)
         return NULL;
 
     unsigned int key_hash;
 
-    key_hash = (* ht->hash_function)(dat->key) % ht->size;
+    key_hash = (* ht->hash_function)(key) % ht->size;
+fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
 
     // check if the data is already present in the table
     for(data_hash_t *ptr=ht->table[key_hash]; ptr != NULL; ptr=ptr->next)
@@ -118,11 +144,19 @@
             return NULL;
 
     // if data was not found, add at start
-    data->next = ht->table[key_hash];
-    ht->table[key_hash] = data;
+    data_hash_t* new_item = (data_hash_t *) malloc(sizeof(data_hash_t));
+    if(!new_item)
+        return NULL;
+
+    new_item->key = key;
+    new_item->data = data;
+    new_item->next = ht->table[key_hash];
+
+    ht->table[key_hash] = new_item;
+fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, ht->table[key_hash]->data);
     ht->number_of_item++;
 
-    return data;
+    return new_item;
  }
 
 
@@ -137,35 +171,33 @@
 *
 * @exceptions : if one of the given parameters is NULL it returns NULL
 */
- data_hash_t* hash_update_insert( hash_t* ht, data_hash_t* data ){
+ data_hash_t* hash_update_insert( hash_t* ht, char* key, char* data ){
      if(!ht || !data)
         return NULL;
 
-    data_hash_t *old_data = NULL;
      data_hash_t *curr, *prev;
+     data_hash_t *old_data = NULL;
      unsigned int key_hash;
 
-     key_hash = (* ht->hash_function)(data->key) % ht->size;
+     key_hash = (* ht->hash_function)(key) % ht->size;
 
      // I look for the value to replace
      for(prev=NULL, curr=ht->table[key_hash]; curr!=NULL; prev=curr, curr=curr->next)
-        if(ht->hash_key_compare(curr->key, data->key)){
-            data->next = curr->next;
+        if(ht->hash_key_compare(curr->key, key)){
 
             if(prev == NULL) // if the item searched for at the top of the list
-                ht->table[key_hash] = data;
+                ht->table[key_hash] = curr->next;
             else
-                prev->next = data;
+                prev->next = curr->next;
 
             old_data = curr;
             curr = NULL;
         }
 
-    // if there was no element, I put the data at the top of the list
-    if(old_data == NULL){
-        data->next = ht->table[key_hash];
-        ht->table[key_hash] = data;
-    }
+    data_hash_t *new_data = (data_hash_t *) malloc(sizeof(data_hash_t));
+    new_data->key = key;
+    new_data->data = data;
+    new_data->next = ht->table[key_hash];
 
     return old_data;
  }
@@ -185,25 +217,75 @@
      if(!ht || !key)
         return NULL;
 
-    data_hash_t *old_data = NULL;
     data_hash_t *curr, *prev;
     unsigned int key_hash;
 
     key_hash = (* ht->hash_function)(key) % ht->size;
 
+    if(ht->table[key_hash] == NULL)
+        return NULL;
+
     // I look for the element with key key
-    for(prev=NULL, curr=ht->table[key_hash]; curr!=NULL; prev=curr, curr=curr->next)
+    prev=NULL;
+    curr=ht->table[key_hash];
+    while( curr!=NULL ){
         if(ht->hash_key_compare(curr->key, key)){
             if(prev == NULL)
-                ht->table[key_hash];
+                ht->table[key_hash] = curr->next;
             else
                 prev->next = curr->next;
 
-            old_data = curr;
+            ht->number_of_item--;
+            return curr;
             curr = NULL;
         }
 
-    return old_data;
+        prev=curr;
+        curr=curr->next;
+    }
+
+    return NULL;
+ }
+
+/**
+* Free one hash table entry located by key
+*
+* @param ht : the hash table to be freed
+* @param key : the key of the item to be deleted
+*
+* @returns : - 0 on success
+*            - -1 on failure
+*/
+ int hash_delete( hash_t* ht, char *key ){
+     if(!ht || !key)
+        return -1;
+
+    data_hash_t *curr, *prev;
+    unsigned int key_hash;
+
+    key_hash = (* ht->hash_function)(key) % ht->size;
+
+    prev = NULL;
+    curr=ht->table[key_hash];
+    while( curr!=NULL ){
+        if(ht->hash_key_compare(curr->key, key)){
+            if(prev == NULL){
+                ht->table[key_hash] = curr->next;
+            }else{
+                prev->next = curr->next;
+            }
+
+            if(curr->key) free(curr->key);
+            if(curr->data) free(curr->data);
+            free(curr);
+            ht->number_of_item--;
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+
+    return -1;
  }
 
 /**
@@ -225,8 +307,11 @@
          ptr_list = ht->table[i];
          for(curr=ptr_list; curr!=NULL;){
              next = curr->next;
-             free(curr->key);
-             if(curr->data) free(curr->data);
+             if(curr->key)
+                free(curr->key);
+             if(curr->data)
+                free(curr->data);
+             free(curr);
              curr = next;
          }
      }
