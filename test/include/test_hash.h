@@ -50,6 +50,7 @@
 
 unsigned long tempo = 0;
 
+//
 void read_data(data_hash_t* data){
     if(!data){
         fprintf(stdout, "dato NULL\n");
@@ -60,6 +61,7 @@ void read_data(data_hash_t* data){
                         data->key, data->data);
 }
 
+//
 void read_list(data_hash_t* list){
     if(!list){
         fprintf(stdout, "lista vuota\n");
@@ -76,6 +78,7 @@ void read_list(data_hash_t* list){
     fprintf(stdout, "end list\n");
 }
 
+//
 void read_table(hash_t* ht){
     if(!ht){
         fprintf(stdout, "tabella vuota\n");
@@ -88,6 +91,7 @@ void read_table(hash_t* ht){
     }
 }
 
+//
 int avoid_test_hash(void){
     int i=0, index=0;
     unsigned int seme1 = 0, seme2 = 1, seme3 = 2;
@@ -171,6 +175,7 @@ int avoid_test_hash(void){
             free(ptr);
         }
     }
+    
     fprintf(stdout, "%lu : rimossione di certi elementi -> success\n", tempo++);
 
     fprintf(stdout, "%lu : lettura della tabella\n", tempo++);
