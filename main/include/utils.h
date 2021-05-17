@@ -39,8 +39,9 @@
 #include <errno.h>
 #include <limits.h>
 
-#if !defined(UTILS_H)
+#ifndef UTILS_H
 #define UTILS_H
+
 /*
 int isNumber( const char* s, long* n ){
 
@@ -93,7 +94,7 @@ long getNumber( char* s ){
 
 #endif
 
-#if !defined(CALL_EXIT)
+#ifndef CALL_EXIT
 #define CALL_EXIT
 
 #define VALUE_EXIT(v, r, f, s) \
@@ -122,7 +123,7 @@ long getNumber( char* s ){
 
 #endif
 
-#if !defined(CALL_PRINT_ERROR)
+#ifndef CALL_PRINT_ERROR
 #define CALL_PRINT_ERROR
 
 #define IS_NULL_PRNT_ERROR(r, f, s) \
@@ -143,7 +144,7 @@ long getNumber( char* s ){
 #endif
 
 
-#if !defined(PRINT_ERROR_AND_EXIT)
+#ifndef PRINT_ERROR_AND_EXIT
 #define PRINT_ERROR_AND_EXIT
 
 #define IS_NULL_ERROR(r, f, s) \
