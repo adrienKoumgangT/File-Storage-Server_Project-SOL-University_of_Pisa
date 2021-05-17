@@ -36,7 +36,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "utils.h"
 #include "server.h"
 
 int avoid_test_server( char* pt ){
