@@ -46,12 +46,18 @@
 #define STR_LEN 80
 #define STR_SIZE (STR_LEN * sizeof(char))
 
+// variabile globale per il dbg
 int tempo_dgb = 1;
 
 // server variables
 struct _config_for_server configurations_server;
 struct _hash_t *files_server;
 
+
+/* ###############################################
+*  #definition of server configuration functions #
+*  ###############################################
+*/
 
 /**
 * reinitializes the server configurations
@@ -90,6 +96,9 @@ int is_correct_cfs(){
     if(config->size_memory <= 0)
         return -1;
 
+    if(config->number_of_files <= 0)
+        return -1;
+
     if(config->socket_name == NULL)
         return -1;
 
@@ -111,6 +120,8 @@ fprintf(stdout, "%d : entro dentro read_config_server\n", tempo_dgb++);
                         config->thread_workers);
     fprintf(stdout, "size of memory for server = %ld\n",
                         config->size_memory);
+    fprintf(stdout, "max number of files to write on server = %ld\n",
+                        config->number_of_files);
     fprintf(stdout, "name to use for the socket : %s\n",
                         config->socket_name);
     fflush(stdout);
@@ -155,7 +166,13 @@ fprintf(stdout, "%d : entro dentro parsing_str_for_config_server\n", tempo_dgb++
 
             if( (config->size_memory = (unsigned long) getNumber(token)) < 0)
                 return -1;
-        }else if(strncmp(token, s_n, sizeof(t_w)) == 0){
+        }else if(strncmp(token, n_f, sizeof(n_f)) == 0){
+            token = strtok_r(NULL, ":", &tmp);
+            token[strcspn(token, "\n")] = '\0';
+
+            if( (config->number_of_files = (unsigned long) getNumber(token)) < 0)
+                return -1;
+        }else if(strncmp(token, s_n, sizeof(s_n)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
 
