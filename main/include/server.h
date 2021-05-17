@@ -42,13 +42,15 @@
 typedef struct _config_for_server{
     unsigned long thread_workers;
     unsigned long size_memory;
+    unsigned long number_of_files;
     char *socket_name;
 }cfs;
 
 // define for config server
-#define n_param_config 3
+#define n_param_config 4
 #define t_w "THREAD_WORKERS"
 #define s_m "SIZE_MEMORY"
+#define n_f "NUMBER_OF_FILES"
 #define s_n "SOCKET_NAME"
 
 
@@ -60,7 +62,14 @@ int config_file_parser( FILE* file, cfs* config );
 int parsing_str( char* str, cfs* config );
 void read_config_server();
 
+#endif
+
+#if !defined(_SERVER_)
+#define _SERVER_
+
+
 // functions used for server operation
 void run_server( char* path_file_config );
+
 
 #endif
