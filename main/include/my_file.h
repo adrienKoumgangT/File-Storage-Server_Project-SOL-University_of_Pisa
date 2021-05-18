@@ -44,6 +44,8 @@
  typedef struct _file_t {
  	char *key;
  	char *data;
+    size_t len;
+    size_t size;
  	struct _file_t *next;
  } file_t;
 
