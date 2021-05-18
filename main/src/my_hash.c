@@ -150,6 +150,8 @@ fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
 
     new_item->key = key;
     new_item->data = data;
+    new_item->len = strlen(data);
+    new_item->size = sizeof(data);
     new_item->next = ht->table[key_hash];
 
     ht->table[key_hash] = new_item;
@@ -197,6 +199,8 @@ fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, 
     data_hash_t *new_data = (data_hash_t *) malloc(sizeof(data_hash_t));
     new_data->key = key;
     new_data->data = data;
+    new_item->len = strlen(data);
+    new_item->size = sizeof(data);
     new_data->next = ht->table[key_hash];
 
     return old_data;
