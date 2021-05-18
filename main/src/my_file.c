@@ -72,3 +72,14 @@
  int hash_key_compare_for_file_t(char* first_key, char* second_key){
      return strcmp(first_key , second_key);
  }
+
+/**
+* print the file with its information and content
+*
+*   @params f : file to print the contents of
+*/
+ void print_file(file_t *f){
+     if(f){
+         fprintf(stdout, "%s  %d  %s", f->key, f->len, f->data);
+     }
+ }

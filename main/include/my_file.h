@@ -56,5 +56,8 @@
  // compare function
  int hash_key_compare_for_file_t(char*, char*);
 
+ // print file
+ void print_file(file_t *);
+
 
  #endif
