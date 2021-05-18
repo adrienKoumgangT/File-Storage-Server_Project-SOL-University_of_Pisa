@@ -40,7 +40,12 @@
 
  // simple hash function
  /**
+ *  hash function that computes the hash value given to key
  *
+ * @params key : key to find its hash value
+ *
+ * @returns : -1 if not valid key
+ *              hash value it is valid key
  */
  unsigned int hash_function_for_file_t(char* key){
      char *str_key = (char *) key;
@@ -56,7 +61,13 @@
 
  // compare function
  /**
+ *  function that allows you to compare two keys
  *
+ * @params first_key : first key to compare
+ * @params second_key : second value to compare
+ *
+ * @returns : 0 if egual
+ *             -1, 1 otherwise
  */
  int hash_key_compare_for_file_t(char* first_key, char* second_key){
      return strcmp(first_key , second_key);
