@@ -39,17 +39,23 @@
 
 #include "my_file.h"
 
-#define OF "OF";
-#define RF "RF";
-#define RNF "RNF";
-#define ATF "ATF";
-#define LF "LF";
-#define UF "UF";
-#define CF "CF";
-#define RF "RF";
+// flags that specify the operation requested by the client
+#define OF      "OF";
+#define RF      "RF";
+#define RNF     "RNF";
+#define ATF     "ATF";
+#define LF      "LF";
+#define UF      "UF";
+#define CF      "CF";
+#define RF      "RF";
+
+#define O_CREATE    (1)
+#define O_LOCK      (2)
 
 typedef struct _message_request{
         char *flag;
+        char *pathname;
+        int mode;
 }message_request;
 
 typedef struct _message_answer{
@@ -57,6 +63,7 @@ typedef struct _message_answer{
     char *str;
     int n;
     file_t *f;
+    int error;
 }message_answer;
 
 #endif
