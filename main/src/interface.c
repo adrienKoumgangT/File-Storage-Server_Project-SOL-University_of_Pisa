@@ -53,11 +53,14 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 
 //#include "utils.h"
 #include "interface.h"
+#include "message.h"
 
-int sock_fd;
+static int fd_sock;
+static struct sockaddr_un serv_addr;
 
 /*
 EBADF : Descriptore di domanda non valido
@@ -120,55 +123,82 @@ EOPNOTSUPP :
 * An AF_UNIX connection is opened to the socket file sockname
 *
 * @param sockname : name of the socket to connect to
-* @param msec : time to repeat to retry the connection with the server if it fails
+* @param msec : time to repeat to retry the connection with
+*                       the server if it fails
 * @param abstime : time until you try to connect to the server
 *
 * @returns :  0 to success
 *            -1 to failure
 */
-int openConnection( const char* sockname, int msec, const struct timespec abstime ){
+// TODO: da verificare fino in fondo
+// (da verificare e fare concodare con il progetto)
+int openConnection( const char* sockname, int msec,
+                                        const struct timespec abstime ){
+//    int err;
 
+    if(!sockname || (msec < 0)){
+        errno = EINVAL;
+        return -1;
+    }
+
+    // creazione di un socket di dominio AF_UNIX,
+    // tipo di connessione SOCK_STREAM e
+    // di protocollo di default (0)
+    if((fd_sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+        return -1;
+
+    memset(&serv_addr, '0', sizeof(serv_addr));
+    serv_addr.sun_family = AF_UNIX;
+    strncpy(serv_addr.sun_path, sockname, strlen(sockname)+1);
+
+    struct timespec time_sleep;
+    time_sleep.tv_sec = 0;
+    time_sleep.tv_nsec = msec * 1000000;
+    struct timespec time_request;
+    time_request.tv_sec = 0;
+    time_request.tv_nsec = msec * 1000000;
+
+    struct timespec current_time;
+    memset(&current_time, '0', sizeof(current_time));
+
+    do{
+        if(connect(fd_sock, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) != -1)
+            return 0;
+
+        nanosleep(&time_sleep, &time_request);
+
+        if(clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+            return -1;
+
+    }while(current_time.tv_sec < abstime.tv_sec ||
+        current_time.tv_nsec < abstime.tv_nsec);
+
+    fprintf(stdout, "\n");
+
+    return 0;
+}
+
+/**
+* closes the established connection between the client and the server
+*
+* @params sockname : the name of the socket on which the client was connected
+*
+* @returns : -1 in case of error with errno set
+*             0 on success
+*/
+int closeConnection( const char* sockname ){
     if(!sockname){
         errno = EINVAL;
         return -1;
     }
 
-    struct sockaddr_un serv_addr;
-
-    if((sock_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1){
+    if(strncmp(serv_addr.sun_path, sockname, strlen(sockname)+1) ==  0){
+        return close(fd_sock);
+    }else{
         errno = EFAULT;
         return -1;
     }
-
-    while(1){
-
-
-        memset(&serv_addr, '0', sizeof(serv_addr));
-        serv_addr.sun_family = AF_UNIX;
-        strncpy(serv_addr.sun_path, sockname, sizeof(sockname)+1);
-
-        int notused = connect(sock_fd, (struct sockaddr*) &serv_addr, sizeof(serv_addr));
-
-        if(notused == -1){
-            if(errno == EADDRNOTAVAIL ||
-                errno == EAFNOSUPPORT ||
-                errno == EBADF){
-                    // errore che richiede l'uscita
-            }
-
-            if(errno == EALREADY ||
-                errno == ECONNREFUSED ||
-                errno == EINPROGRESS){
-                    // errore che richiede di aspettare
-            }
-        }
-
-    }
-
-    errno = ECONNREFUSED;
 }
-
-int closeConnection( const char* sockname );
 
 int openFile( const char* pathname, int flags );
 
@@ -176,7 +206,8 @@ int readFile( const char* pathname, void** buf, size_t* size );
 
 int readNFile( int N, const char* dirname );
 
-int appendToFile( const char* pathname, void* buf, size_t size, const char* dirname );
+int appendToFile( const char* pathname, void* buf, size_t size,
+                                                const char* dirname );
 
 int lockFile( const char* pathname );
 
