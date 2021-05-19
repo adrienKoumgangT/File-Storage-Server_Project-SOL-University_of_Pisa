@@ -71,46 +71,36 @@ int flag_f = 0;
 int flag_p = 0;
 int flag_tt = 0;
 
+int flag_r = 0;
+int flag_R = 0;
+int flag_d = 0;
+int flags_r_d = 0;
+int flags_R_d = 0;
+
 struct timespec time_dodo;
 time_dodo.tv_sec = 0;
 time_dodo.tv_nsec = 0;
-
-// help messages related to each terminal line command
-char help[]   = "-h -f filename -w dirname[,n=0] -W file1[,file2] -D dirname -r file1[,file2] -R [n=0] -d dirname -t time -l file1[file2] -u file1[,file2] -c file1[,file2] -p";
-char help_h[] = "-h : print the list of all accepted options";
-char help_f[] = "-f filename : specifies the name of the AF_UNIX socket to connect to";
-char help_w[] = "-w dirname[,n=0] : send the files in the 'dirname' folder to the server";
-char help_W[] = "-W file1[,file2] : list of file names to be written to the server";
-char help_D[] = "-D dirname : folder in secondary memory where the files that the server removes following a capacity miss are written";
-char help_r[] = "-r file1[,file2] : list of file names to be read by the server";
-char help_R[] = "-R [n=0] : allows you to read 'n' files currently stored on the server";
-char help_d[] = "-d dirname : folder in secondary memory where to write the files read by the server with the '-r' or '-R' option";
-char help_tt[] = "-t time : time in milliseconds between sending two successive requests to the server";
-char help_l[] = "-l file1[,file2] : list of file names on which to acquire the mutual exclusion";
-char help_u[] = "-u file1[,file2] : list of file names on which to release the mutual exclusion";
-char help_c[] = "-c file1[,file2] : list of files to be removed from the server if any";
-char help_p[] = "-p : enable standard output printouts";
 
 /**
 * prints a detailed message related to each server command
 */
 void print_help(){
     fprintf(stdout, "User manual to communicate with the server\n");
-    fprintf(stdout, "%s\n\n", help);
+    fprintf(stdout, "%s\n\n", "-h -f filename -w dirname[,n=0] -W file1[,file2] -D dirname -r file1[,file2] -R [n=0] -d dirname -t time -l file1[file2] -u file1[,file2] -c file1[,file2] -p");
     fprintf(stdout, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-                    help_h,
-                    help_f,
-                    help_w,
-                    help_W,
-                    help_D,
-                    help_r,
-                    help_R,
-                    help_d,
-                    help_tt,
-                    help_l,
-                    help_u,
-                    help_c,
-                    help_p
+                    "-h : print the list of all accepted options",
+                    "-f filename : specifies the name of the AF_UNIX socket to connect to",
+                    "-w dirname[,n=0] : send the files in the 'dirname' folder to the server",
+                    "-W file1[,file2] : list of file names to be written to the server",
+                    "-D dirname : folder in secondary memory where the files that the server removes following a capacity miss are written",
+                    "-r file1[,file2] : list of file names to be read by the server",
+                    "-R [n=0] : allows you to read 'n' files currently stored on the server",
+                    "-d dirname : folder in secondary memory where to write the files read by the server with the '-r' or '-R' option",
+                    "-t time : time in milliseconds between sending two successive requests to the server",
+                    "-l file1[,file2] : list of file names on which to acquire the mutual exclusion",
+                    "-u file1[,file2] : list of file names on which to release the mutual exclusion",
+                    "-c file1[,file2] : list of files to be removed from the server if any",
+                    "-p : enable standard output printouts"
             );
 }
 
@@ -140,7 +130,17 @@ int control_configuration_connection(){
 *             0 if successful
 */
 int cmd_f( char *args ){
+    if(!args){
+        fprintf(stdout, "Error: wrong address! try again...\n");
+        return -1;
+    }
+
     int len_sock = strlen(args);
+    iif(len_sock >= UNIX_PATH_MAX){
+        fprintf(stdout, "Error: wrong adress! the given address is too long\n try again...");
+        return -1;
+    }
+
     socket_name = (char *) malloc((len_sock + 1) * sizeof(char));
     strncpy(socket_name, optarg, len_sock+1);
     struct timespec abstime = {0, 0};
@@ -375,22 +375,27 @@ void run_client(){
         while((opt = getopt(n, cmd_args, ":hf:w:W:D:r:R:d:t:l:u:c:p")) != -1){
             switch(opt){
                 case 'h':
-                    flag_h = 1;
-                    print_help();
+                    if(!flag_h){
+                        flag_h = 1;
+                        print_help();
+                    }else{
+                        fprintf(stdout, "WARNING : command already used\n");
+                    }
                     break;
                 case 'p':
                     if(!flag_p){
                         flag_p = 1;
                     }else{
-                        fprintf(stdout, "Attention : prints on the output for each operation already enabled\n");
+                        fprintf(stdout, "WARNING : prints on the output for each operation already enabled\n");
                     }
                     break;
                 case 'f':
                     if(!flag_f){
                         flag_f = 1;
-                        cmd_f(optarg);
+                        if(cmd_f(optarg) == -1)
+                            break; // TODO: trovare un modo di uscire del while
                     }else{
-                        fprintf(stderr, "Error : the socket name has already been set (%s)\n", socket_name);
+                        fprintf(stderr, "ERROR : the socket name has already been set (%s)\n", socket_name);
                     }
                     break;
                 case 't':
