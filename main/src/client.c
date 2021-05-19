@@ -60,7 +60,7 @@
 // define for connection to server
 #define time_to_retry (5 * 1000)
 #define time_to_connect_sec 5
-#define time_to_connect_nsec (time_to_connect_sec * 1_000_000)
+#define time_to_connect_nsec (time_to_connect_sec * 1000000)
 
 //char *socket_name;
 //int fd_skt;
@@ -78,8 +78,6 @@ int flags_r_d = 0;
 int flags_R_d = 0;
 
 struct timespec time_dodo;
-time_dodo.tv_sec = 0;
-time_dodo.tv_nsec = 0;
 
 /**
 * prints a detailed message related to each server command
@@ -102,6 +100,7 @@ void print_help(){
                     "-c file1[,file2] : list of files to be removed from the server if any",
                     "-p : enable standard output printouts"
             );
+    fflush(stdout);
 }
 
 /**
@@ -136,12 +135,13 @@ int cmd_f( char *args ){
     }
 
     int len_sock = strlen(args);
-    iif(len_sock >= UNIX_PATH_MAX){
-        fprintf(stdout, "Error: wrong adress! the given address is too long\n try again...");
+    if(len_sock >= PATH_MAX){
+        fprintf(stdout,
+            "Error: wrong adress! the given address is too long\n try again...");
         return -1;
     }
 
-    socket_name = (char *) malloc((len_sock + 1) * sizeof(char));
+    char *socket_name = (char *) malloc((len_sock + 1) * sizeof(char));
     strncpy(socket_name, optarg, len_sock+1);
     struct timespec abstime = {0, 0};
     if(clock_gettime(CLOCK_REALTIME, &abstime) == -1){
@@ -153,6 +153,8 @@ int cmd_f( char *args ){
     if( openConnection(socket_name, time_to_retry, abstime) == -1){
 
     }
+
+    return 0;
 
 }
 
@@ -169,6 +171,8 @@ int cmd_w( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
 
+    return 0;
+
 }
 
 /**
@@ -183,6 +187,8 @@ int cmd_w( char *args ){
 int cmd_W( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -197,6 +203,8 @@ int cmd_W( char *args ){
 int cmd_D( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -211,6 +219,8 @@ int cmd_D( char *args ){
 int cmd_r( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -225,6 +235,8 @@ int cmd_r( char *args ){
 int cmd_R( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -239,6 +251,8 @@ int cmd_R( char *args ){
 int cmd_d( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -262,7 +276,7 @@ void cmd_tt( char *args ){
         return;
     }
 
-    time_dodo.tv_nsec = new_time * 1_000_000;
+    time_dodo.tv_nsec = new_time * 1000000;
 }
 
 /**
@@ -277,6 +291,8 @@ void cmd_tt( char *args ){
 int cmd_l( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -291,6 +307,8 @@ int cmd_l( char *args ){
 int cmd_u( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -305,6 +323,8 @@ int cmd_u( char *args ){
 int cmd_c( char *args ){
     if(control_configuration_connection() != 0)
         return -2;
+
+    return 0;
 }
 
 /**
@@ -392,10 +412,12 @@ void run_client(){
                 case 'f':
                     if(!flag_f){
                         flag_f = 1;
+                        fprintf(stdout, "optarg di flag_f = %s\n", optarg);
                         if(cmd_f(optarg) == -1)
                             break; // TODO: trovare un modo di uscire del while
                     }else{
-                        fprintf(stderr, "ERROR : the socket name has already been set (%s)\n", socket_name);
+                        fprintf(stderr,
+                            "ERROR : the socket name has already been set\n");
                     }
                     break;
                 case 't':
@@ -437,7 +459,8 @@ void run_client(){
                             cmd_tt( NULL );
                             break;
                         default:
-                            fprintf(stderr, "l'opzione '-%c' richiede un argomento\n",
+                            fprintf(stderr,
+                                "l'opzione '-%c' richiede un argomento\n",
                                             optopt);
                     }
                     break;
