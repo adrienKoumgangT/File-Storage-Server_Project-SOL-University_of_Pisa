@@ -39,11 +39,24 @@
 
 #include "my_file.h"
 
-typedef struct _message{
+#define OF "OF";
+#define RF "RF";
+#define RNF "RNF";
+#define ATF "ATF";
+#define LF "LF";
+#define UF "UF";
+#define CF "CF";
+#define RF "RF";
+
+typedef struct _message_request{
+        char *flag;
+}message_request;
+
+typedef struct _message_answer{
     int len;
     char *str;
     int n;
     file_t *f;
-}message;
+}message_answer;
 
 #endif
