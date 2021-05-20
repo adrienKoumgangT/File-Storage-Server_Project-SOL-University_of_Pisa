@@ -49,8 +49,18 @@
 #define CF      "CF";
 #define RF      "RF";
 
-#define O_CREATE    (1)
-#define O_LOCK      (2)
+#define _OF_M       (1)
+#define _RF_M       (2)
+#define _RNF_M      (3)
+#define _ATF_M      (4)
+#define _LF_M       (5)
+#define _UF_M       (6)
+#define _CF_M       (7)
+#define _RFI_M       (8)
+
+#define O_CREATE            (1)
+#define O_LOCK              (2)
+#define O_CREATE_AND_LOCK   (3)
 
 typedef struct _message_request{
         char *flag;
