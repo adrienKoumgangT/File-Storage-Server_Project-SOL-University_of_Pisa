@@ -80,6 +80,6 @@
 */
  void print_file(file_t *f){
      if(f){
-         fprintf(stdout, "%s  %d  %s", f->key, f->len, f->data);
+         fprintf(stdout, "%s  %ld  %s", f->key, f->size, f->data);
      }
  }
