@@ -41,11 +41,20 @@
  #if !defined(FILE_T)
  #define FILE_T
 
- typedef struct _file_t {
+/**
+* format of a generic file
+*
+* key : the unique identification key of a file (also its pathname)
+* data : string containing the contents of the file
+* size : the size of the file
+* next : pointer to a possible file
+*/
+ typedef struct _file_t { // TODO: da completare sugli altri file
  	char *key;
  	char *data;
-    size_t len;
     size_t size;
+//    time_t t;
+    int log;
  	struct _file_t *next;
  } file_t;
 
