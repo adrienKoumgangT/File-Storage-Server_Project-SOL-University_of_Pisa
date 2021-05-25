@@ -129,7 +129,7 @@
 *
 * @exceptions : if one of the given parameters is NULL it returns NULL
 */
- data_hash_t* hash_insert( hash_t* ht, char* key, char* data){
+ data_hash_t* hash_insert( hash_t* ht, char* key, char* data ){
      if(!ht || !key || !data)
         return NULL;
 
@@ -150,12 +150,12 @@ fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
 
     new_item->key = key;
     new_item->data = data;
-    new_item->len = strlen(data);
     new_item->size = sizeof(data);
+    new_item->log = -1;
     new_item->next = ht->table[key_hash];
 
     ht->table[key_hash] = new_item;
-fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, ht->table[key_hash]->data);
+// fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, ht->table[key_hash]->data);
     ht->number_of_item++;
 
     return new_item;
@@ -196,12 +196,12 @@ fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, 
             curr = NULL;
         }
 
-    data_hash_t *new_data = (data_hash_t *) malloc(sizeof(data_hash_t));
-    new_data->key = key;
-    new_data->data = data;
-    new_item->len = strlen(data);
+    data_hash_t *new_item = (data_hash_t *) malloc(sizeof(data_hash_t));
+    new_item->key = key;
+    new_item->data = data;
     new_item->size = sizeof(data);
-    new_data->next = ht->table[key_hash];
+    new_item->log = -1;
+    new_item->next = ht->table[key_hash];
 
     return old_data;
  }
@@ -241,7 +241,7 @@ fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, 
 
             ht->number_of_item--;
             return curr;
-            curr = NULL;
+            //curr = NULL;
         }
 
         prev=curr;
@@ -280,7 +280,8 @@ fprintf(stdout, "insert data : key=%s and data=%s\n", ht->table[key_hash]->key, 
             }
 
             if(curr->key) free(curr->key);
-            if(curr->data) free(curr->data);
+            if(curr->data)
+                free(curr->data);
             free(curr);
             ht->number_of_item--;
             return 0;
