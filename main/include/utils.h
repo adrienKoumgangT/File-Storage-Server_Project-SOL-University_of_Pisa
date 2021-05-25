@@ -25,7 +25,7 @@
 /**
 * @file utils.h
 *
-* definition of utility functions
+* definition of utility functions and macro
 *
 * @author adrien koumgang tegantchouang
 * @version 1.0
@@ -33,136 +33,153 @@
 */
 
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+#include <stdarg.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
-#ifndef UTILS_H
-#define UTILS_H
+#if !defined(EXTRA_LEN_PRINT_ERROR)
+#define EXTRA_LEN_PRINT_ERROR 512
+#endif
 
-/*
-int isNumber( const char* s, long* n ){
 
-    if(s == NULL) return 1;
-    if(strlen(s) == 0) return 1;
+#ifndef FUNCTION_UTILS
+#define FUNCTION_UTILS
 
-    char *e = NULL;
-    errno = 0;
-
-    long val = strtol(s, &e, 10);
-    if(errno == ERANGE) return 2; // overflow / underflow
-    if(e != NULL && *e == (char)0){
-        *n = val;
-        return 0;
-    }
-
-    return 1;
-}
-*/
-
-long getNumber( char* s ){
-
-    int base;
+long getNumber( char* s, int base ){
     long val;
     char *endptr, *str;
 
     str = s;
-    base = 10;
-
     errno = 0; /* To distinguish success/failure after call */
     val = strtol(str, &endptr, base);
 
-    // Check for various errors
-    if((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN))
+    // check for various erros
+    if((errno = ERANGE && (val == LONG_MAX || val == LONG_MIN))
             || (errno != 0 && val == 0)){
-        perror("strtol");
-        exit(EXIT_FAILURE);
-    }
-
-    if(endptr == str){
-        fprintf(stderr, "No digits were found\n");
-        exit(EXIT_FAILURE);
+                perror("strtol");
+                exit(EXIT_FAILURE);
     }
 
     // If we got here, strtol() successfully parsed a number
     return val;
-
 }
 
+#endif
+
+#ifndef UTILS_H
+#define UTILS_H
 
 #endif
 
-#ifndef CALL_EXIT
-#define CALL_EXIT
+#ifndef SYSCALL_ERROR
+#define SYSCALL_ERROR
 
-#define VALUE_EXIT(v, r, f, s) \
-    if((r = (f)) == v){ \
-        perror(#s); \
-        exit(EXIT_FAILURE); \
+#define SYSCALL_EXIT_EQ( name, r, sc, ve, str ) \
+    if((r = (sc)) == ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        exit(errno_copy);                       \
     }
 
-#define NULL_EXIT(r, f, s) \
-    if((r = (f)) == NULL){ \
-        perror(#s); \
-        exit(EXIT_FAILURE); \
+#define SYSCALL_EXIT_NEQ( name, r, sc, ve, str ) \
+    if((r = (sc)) != ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        exit(errno_copy);                       \
     }
 
-#define ZERO_EXIT(r, f, s) \
-    if((r = (f)) == 0){ \
-        perror(#s); \
-        exit(EXIT_FAILURE); \
+
+#define SYSCALL_RETURN_EQ( name, r, sc, ve, str ) \
+    if((r = (sc)) == ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        errno = errno_copy;                     \
+        return r;                               \
     }
 
-#define MINUS_ONE_EXIT(r, f, s) \
-    if((r = (f)) == -1){ \
-        perror(#s); \
-        exit(EXIT_FAILURE); \
+
+#define SYSCALL_RETURN_NEQ( name, r, sc, ve, str ) \
+    if((r = (sc)) != ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        errno = errno_copy;                     \
+        return r;                               \
     }
+
+
+#define SYSCALL_PRINT_EQ( name, r, sc, ve, str ) \
+    if((r = (sc)) == ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        errno = errno_copy;                     \
+    }
+
+
+#define SYSCALL_PRINT_NEQ( name, r, sc, ve, str ) \
+    if((r = (sc)) != ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);          \
+        errno = errno_copy;                     \
+    }
+
+/**
+* Brief utility procedure for printing errors
+*
+* @params str : string containing the number to extract
+* @params ... : any other arguments to the print errors function
+*/
+static inline void print_error( const char* str ){
+    const char err[] = "ERROR: ";
+    //va_list argp;
+    char* p = (char *) malloc(strlen(str) + strlen(err) + EXTRA_LEN_PRINT_ERROR);
+    if(!p){
+        perror("malloc");
+        fprintf(stderr, "FATAL ERROR: in function 'print_error' \n");
+        return;
+    }
+    strcpy(p, err);
+    strcpy(p + strlen(err), str);
+    //va_start(argp, str);
+    //vfprintf(stderr, p, argp);
+    //va_end(argp);
+    free(p);
+}
 
 #endif
 
-#ifndef CALL_PRINT_ERROR
-#define CALL_PRINT_ERROR
 
-#define IS_NULL_PRNT_ERROR(r, f, s) \
-    if((r = (f)) == NULL){ \
-        fprintf(stderr, "NULL_PRNT_ERROR : %s\n", s); \
+#ifndef THREADS_MANAGEMENT
+#define THREADS_MANAGEMENT
+
+#define LOCK(l) \
+    if(pthread_mutex_lock(l) != 0){                 \
+        fprintf(stderr, "FATAL ERROR: lock\n");     \
+        pthread_exit((void*) EXIT_FAILURE);         \
     }
 
-#define IS_ZERO_PRINT_ERROR(r, f, s) \
-    if((r = (f)) == 0){ \
-        fprintf(stderr, "ZERO_PRINT_ERROR : %s\n", s); \
+#define UNLOCK(l) \
+    if(pthread_mutex_unlock(l) != 0){               \
+        fprintf(stderr, "FATAL ERROR: unlock\n");   \
+        pthread_exit((void*) EXIT_FAILURE);         \
     }
 
-#define IS_MINUS_ONE_PRINT_ERROR(r, f, s) \
-    if((r = (f)) == -1){ \
-        fprintf(stderr, "MINUS_PRINT_ERROR : %s\n", s); \
-    }
-
-#endif
-
-
-#ifndef PRINT_ERROR_AND_EXIT
-#define PRINT_ERROR_AND_EXIT
-
-#define IS_NULL_ERROR(r, f, s) \
-    if((r = (f)) == NULL){ \
-        fprintf(stderr, "FATAL ERROR : %s\n", s); \
-        exit(EXIT_FAILURE); \
-    }
-
-#define IS_ZERO_ERROR(r, f, s) \
-    if((r = (f)) == 0){ \
-        fprintf(stderr, "FATAL ERROR : %s\n", s); \
-        exit(EXIT_FAILURE); \
-    }
-
-#define IS_MINUS_ONE_ERROR(r, f, s) \
-    if((r = (f)) == -1){ \
-        fprintf(stderr, "FATAL ERROR : %s\n", s); \
-        exit(EXIT_FAILURE); \
+#define WAIT(c, l) \
+    if(pthread_cond_wait(c, l) != 0){                   \
+        fprintf(stderr, "FATAL ERROR: timed wait\n");   \
+        pthread_exit((void*) EXIT_FAILURE);             \
     }
 
 #endif
