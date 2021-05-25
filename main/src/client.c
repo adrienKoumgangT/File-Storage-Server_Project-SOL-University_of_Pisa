@@ -40,6 +40,7 @@
 #include <getopt.h>
 #include <time.h>
 #include <errno.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -47,9 +48,10 @@
 
 #include <assert.h>
 
-#include "client.h"
 #include "interface.h"
 #include "utils.h"
+
+
 
 // define for all programs
 #define STR_LEN 80
@@ -66,9 +68,9 @@
 //int fd_skt;
 //struct sockaddr_un serv_addr;
 
-int flag_h = 0;
+int print_operation = 0;
+
 int flag_f = 0;
-int flag_p = 0;
 int flag_tt = 0;
 
 int flag_r = 0;
@@ -103,38 +105,14 @@ void print_help(){
     fflush(stdout);
 }
 
-/**
-* check if the client is connected to a server or not
-*
-* @returns : -1 if the client is not connected to a server
-*             0 otherwise
-*/
-int control_configuration_connection(){
-    if(!flag_f){
-        fprintf(stdout, "Error : connection to socket not yet configured\n");
-        fprintf(stdout, "          Write '-h' for more details\n");
-        fflush(stdout);
-        return -1;
-    }
 
-    return 0;
-}
-
-/**
-* connects the client to a server
-*
-* @params args : string containing the name of the server socket to connect to
-*
-* @returns : -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_f( char *args ){
-    if(!args){
+int connect_to_server( char* sockname ){
+    if(!sockname){
         fprintf(stdout, "Error: wrong address! try again...\n");
         return -1;
     }
 
-    int len_sock = strlen(args);
+    int len_sock = strlen(sockname);
     if(len_sock >= PATH_MAX){
         fprintf(stdout,
             "Error: wrong adress! the given address is too long\n try again...");
@@ -142,7 +120,8 @@ int cmd_f( char *args ){
     }
 
     char *socket_name = (char *) malloc((len_sock + 1) * sizeof(char));
-    strncpy(socket_name, optarg, len_sock+1);
+    memset(socket_name, '\0', len_sock+1);
+    strncpy(socket_name, sockname, len_sock+1);
     struct timespec abstime = {0, 0};
     if(clock_gettime(CLOCK_REALTIME, &abstime) == -1){
 
@@ -151,331 +130,140 @@ int cmd_f( char *args ){
     abstime.tv_nsec += time_to_connect_nsec;
 
     if( openConnection(socket_name, time_to_retry, abstime) == -1){
-
+        if(socket_name) free(socket_name);
+        if(errno = EINVAL)
+            flag_f = 0;
+        return -1;
     }
 
     return 0;
-
 }
 
-/**
-* function that allows to handle the command '-w'
-*
-* @params args : arguments to the '-w' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_w( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
 
-    return 0;
+int main(int argc, char** argv){
 
-}
-
-/**
-* function that allows to handle the command '-W'
-*
-* @params args : arguments to the '-W' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_W( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-D'
-*
-* @params args : arguments to the '-D' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_D( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-r'
-*
-* @params args : arguments to the '-r' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_r( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-R'
-*
-* @params args : arguments to the '-R' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_R( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-d'
-*
-* @params args : arguments to the '-d' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_d( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that sets the time (in milliseconds) that elapses between
-* the sending of two successive requests to the server
-*
-* @param args : string containing the time
-*/
-void cmd_tt( char *args ){
-    if(control_configuration_connection() != 0)
-        return;
-
-    if(args == NULL){
-        time_dodo.tv_nsec = 0;
-        return;
+    if(argc < 0){
+        fprintf(stderr, "FATAL ERROR: this program is used with at least one argument.\nTry '%s -h' for a list and details\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    long new_time = getNumber(args);
-    if(new_time < 0){
-        fprintf(stderr, "Error : invalid argument: default value = 0\n");
-        return;
+    char sockname[STR_LEN];
+    memset(sockname, '\0', STR_LEN);
+
+    int i;
+    for(i=0; i<argc; i++){
+        if(strncmp(argv[i], "-h", 2) == 0){
+            print_help();
+            exit(EXIT_SUCCESS);
+        }else if(strncmp(argv[i], "-f", 2) == 0){
+            if(!flag_f){ // if the client has not yet been connected to a server
+                flag_f = 1;
+                if(argv[i][2] != '\0'){ // if the server address is attached to the command '-f'
+                    strncpy(sockname, (argv[i] + 2), STR_LEN);
+                    if(connect_to_server(sockname) < 0){
+                        perror("connect_to_server");
+                        exit(EXIT_FAILURE);
+                    }
+                }else{
+                    if((i+1 < argc) && strncmp(argv[i+1], "-", 1) != 0){ // if the server address is contained in the following argument, the command '-f'
+                        strncpy(sockname, argv[i+1], STR_LEN);
+                        if(connect_to_server(sockname) < 0){
+                            perror("connect_to_server");
+                            exit(EXIT_FAILURE);
+                        }
+                    }else{
+                        fprintf(stderr, "FATAL ERROR: problem with the server address (socket name) to connect to. try more again\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+            }else{
+                fprintf(stderr, "the client is already connected to a server with address: %s\n", sockname);
+            }
+        }else if(strncmp(argv[i], "-p", 2) == 0){
+            print_operation = 1;
+        }
+
+        //if(flag_f && print_operation) break;
     }
 
-    time_dodo.tv_nsec = new_time * 1000000;
-}
-
-/**
-* function that allows to handle the command '-l'
-*
-* @params args : arguments to the '-l' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_l( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-u'
-*
-* @params args : arguments to the '-u' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_u( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows to handle the command '-c'
-*
-* @params args : arguments to the '-c' command
-*
-* @returns : -2 if the client is not yet connected to a server
-*            -1 if there has been an error while processing the command
-*             0 if successful
-*/
-int cmd_c( char *args ){
-    if(control_configuration_connection() != 0)
-        return -2;
-
-    return 0;
-}
-
-/**
-* function that allows me to extract client commands from a string
-*
-* @param buffer_input : string containing all client commands
-* @param buffer_output : array of strings containing commands
-*                            and their arguments
-*
-* @returns : the number of strings written to the output buffer on success
-*           -1 to error
-*/
-int parse_arguments( char* buffer_input, char** buffer_output ){
-
-    int i = 1;
-    char *tmp;
-    char *token = strtok_r(buffer_input, " ", &tmp);
-
-    while(token){
-        int len = strlen(token);
-        buffer_output[i] = (char *) malloc((len + 1) * sizeof(char) );
-        memset(buffer_output[i], '\0', sizeof(char));
-
-        strncpy(buffer_output[i], token, len+1);
-
-        token = strtok_r(NULL, " ", &tmp),
-        i++;
+    if(!flag_f){
+        fprintf(stderr, "FATAL ERROR: no server connection command was given.\nTry '%s -h' for a list and details", argv[0]);
+        exit(EXIT_FAILURE);
     }
-
-    int num_str = i;
-
-    buffer_output[i-1][strcspn(buffer_output[i-1], "\n")] = '\0';
-
-//    while(i<LEN_BUF_ARGS-1){
-//        NULL;
-//        i++;
-
-    buffer_output[LEN_BUF_ARGS-1] = NULL;
-
-    return num_str;
-}
-
-/**
-* client startup function
-*/
-void run_client(){
-
     int opt;
-    int n;
-    char buffer_input[STR_LEN];
-    char *cmd_args[LEN_BUF_ARGS];
+    optind = 0;
+    opterr = 0;
 
-    cmd_args[0] = "client";
-
-    while(1){
-        memset(buffer_input, '\0', sizeof(char));
-
-        if(fgets(buffer_input, STR_LEN, stdin) == NULL)
-            continue;
-
-        n = parse_arguments(buffer_input, cmd_args);
-        if(n == 1)
-            continue;
-
-        optind = 1;
-        opterr = 0;
-
-        while((opt = getopt(n, cmd_args, ":hf:w:W:D:r:R:d:t:l:u:c:p")) != -1){
-            switch(opt){
-                case 'h':
-                    if(!flag_h){
-                        flag_h = 1;
-                        print_help();
-                    }else{
-                        fprintf(stdout, "WARNING : command already used\n");
-                    }
-                    break;
-                case 'p':
-                    if(!flag_p){
-                        flag_p = 1;
-                    }else{
-                        fprintf(stdout, "WARNING : prints on the output for each operation already enabled\n");
-                    }
-                    break;
-                case 'f':
-                    if(!flag_f){
-                        flag_f = 1;
-                        fprintf(stdout, "optarg di flag_f = %s\n", optarg);
-                        if(cmd_f(optarg) == -1)
-                            break; // TODO: trovare un modo di uscire del while
-                    }else{
+    while((opt = getopt(argc, argv, ":hf:w:W:D:r:R:d:t:l:u:c:p")) != -1){
+        switch(opt){
+            case 'f':
+                if(!flag_f){
+                    flag_f = 1;
+                }else{
+                    fprintf(stderr,
+                        "ERROR : the socket name has already been set\n");
+                }
+                break;
+            case 't':
+                printf("t\n");
+                //cmd_tt(optarg);
+                break;
+            case 'w':
+                printf("w\n");
+                //cmd_w(optarg);
+                break;
+            case 'W':
+                printf("W\n");
+                //cmd_W(optarg);
+                break;
+            case 'D':
+                printf("D\n");
+                //cmd_D(optarg);
+                break;
+            case 'r':
+                printf("r\n");
+                //cmd_r(optarg);
+                break;
+            case 'R':
+                printf("R\n");
+                //cmd_R(optarg);
+                break;
+            case 'd':
+                printf("d\n");
+                //cmd_d(optarg);
+                break;
+            case 'l':
+                printf("l\n");
+                //cmd_l(optarg);
+                break;
+            case 'u':
+                printf("u\n");
+                //cmd_u(optarg);
+                break;
+            case 'c':
+                printf("c\n");
+                //cmd_c(optarg);
+                break;
+            case ':':
+                switch(optopt){
+                    case 'R':
+                        //cmd_R( NULL );
+                        break;
+                    case 't':
+                        //cmd_tt( NULL );
+                        break;
+                    default:
                         fprintf(stderr,
-                            "ERROR : the socket name has already been set\n");
-                    }
-                    break;
-                case 't':
-                    cmd_tt(optarg);
-                    break;
-                case 'w':
-                    cmd_w(optarg);
-                    break;
-                case 'W':
-                    cmd_W(optarg);
-                    break;
-                case 'D':
-                    cmd_D(optarg);
-                    break;
-                case 'r':
-                    cmd_r(optarg);
-                    break;
-                case 'R':
-                    cmd_R(optarg);
-                    break;
-                case 'd':
-                    cmd_d(optarg);
-                    break;
-                case 'l':
-                    cmd_l(optarg);
-                    break;
-                case 'u':
-                    cmd_u(optarg);
-                    break;
-                case 'c':
-                    cmd_c(optarg);
-                    break;
-                case ':':
-                    switch(optopt){
-                        case 'R':
-                            cmd_R( NULL );
-                            break;
-                        case 't':
-                            cmd_tt( NULL );
-                            break;
-                        default:
-                            fprintf(stderr,
-                                "l'opzione '-%c' richiede un argomento\n",
-                                            optopt);
-                    }
-                    break;
-                default: /* case '?': */
-                    fprintf(stderr, "Error: command not recognized\n");
-            }
+                            "l'opzione '-%c' richiede un argomento\n",
+                                        optopt);
+                }
+                break;
+            default: /* case '?': */
+                fprintf(stderr, "Error: command not recognized\n");
         }
-
-        for(int i=1; i<n; i++){
-            if(cmd_args[i]){
-                free(cmd_args[i]);
-                cmd_args[i] = NULL;
-            }
-        }
-
     }
 
+
+
+    return EXIT_SUCCESS;
 }
