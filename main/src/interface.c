@@ -32,6 +32,9 @@
 * @date 00/05/2021
 */
 
+
+// TODO: riguardare tutte le funzioni : la parte di ritorno di ogni funzione
+
 #define _POSIX_C_SOURCE  200112L  // needed for S_ISSOCK
 
 #include <stdio.h>
@@ -42,7 +45,7 @@
 #include <stdarg.h>
 #include <dirent.h>
 #include <time.h>
-#include <assert.h>
+#include <fcntl.h>
 #include <errno.h>
 
 #include <pwd.h>
@@ -55,69 +58,20 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#include <assert.h>
+
 //#include "utils.h"
 #include "interface.h"
-#include "message.h"
+#include "comunication.h"
+#include "read_write_file.h"
+
 
 static int fd_sock;
 static struct sockaddr_un serv_addr;
+int bytes_read;
+int bytes_write;
 
-/*
-EBADF : Descriptore di domanda non valido
-ECONNREFUSED : connessione rifiutata
-EFAULT : indirizzo sbagliato
-EINVAL : argomento non valido
-ETIMEDOUT : il tentativo di connessione è scaduto prima che fosse
-                stabilita una connessione
-*/
 
-/*
-La funzione connect() fallirà se:
-
-EADDRNOTAVAIL : L'indirizzo specificato non è disponibile dalla macchina locale.
-EAFNOSUPPORT : L'indirizzo specificato non è un indirizzo valido per la famiglia
-                di indirizzi del socket specificato.
-EALREADY : E' già in corso una richiesta di connessione per il socket specificato
-EBADF : L'argomento socket non è un descrittore di file.
-ECONNREFUSED : L'indirizzo di destinazione non era in ascolto per le connessioni
-                o ha rifiutato la richiesta di connessione.
-EINPROGRESS : O_NONBLOCK è impostato per il descrittore di file per il socket
-                e la connessione non può essere stabilitata immediatamente;
-                la connessione deve essere stabilita in modo asinscrono.
-EINTR : Il tentativo di stabilire una connessione è stato interroto dalla
-        consegna di un segnale che è stato intercettato;
-        la connessione deve essere stabilita in modo asinscrono.
-EISCONN : Il socket specificato è in modalità di connessione ed è già connesso.
-ENETUNREACH : Non è presente alcun percorso verso la rete.
-ENOTSOCK : L'argomento socket non fa riferimento a un socket.
-EPROTOTIPO : L'indirizzo specificato ha un tipo diverso rispetto al socket
-                associato all'indirizzo per specificato.
-ETIMEDOUT : Il tentativo di connessione è scaduto prima che fosse stabilitata
-                una connessione.
-
-Se la famiglia di indirizzi del socket è AF_UNIX, connect() fallirà se:
-EIO : Si è verificato un errore di I/O durante la lettura nel file system
-ELOOP : Esiste un loop nei collegamenti simbolici riscontrati durante
-            la risoluzione del percorso in address.
-ENAMETOOLONG : Un componente di un percorso ha superato {NAME_MAX} caratteri
-                o un intero percorso ha superato {PATH_MAX} caratteri.
-ENOENT : Un componente del percorso non nomina un file esistente o
-            il percorso è una stringa vuota.
-ENOTDIR : Un componente del prefisso del percorso del nome del percorso in
-            address non è una directory.
-
-La funzione connect() potrebbe non riuscire se:
-EACCES :
-EADDRINUSE :
-ECONNRESET :
-EHOSTUNREACH :
-EINVAL :
-ELOOP :
-ENAMETOOLONG :
-ENETDOWN :
-ENOBUFS :
-EOPNOTSUPP :
-*/
 
 /**
 * An AF_UNIX connection is opened to the socket file sockname
@@ -127,8 +81,11 @@ EOPNOTSUPP :
 *                       the server if it fails
 * @param abstime : time until you try to connect to the server
 *
-* @returns :  0 to success
-*            -1 to failure
+* @returns : 0 if successful
+*            -1 if the request fails and errno is set
+*
+* errno :
+*   EINVAL => in case of invalid parameter
 */
 // TODO: da verificare fino in fondo
 // (da verificare e fare concodare con il progetto)
@@ -162,20 +119,22 @@ int openConnection( const char* sockname, int msec,
     memset(&current_time, '0', sizeof(current_time));
 
     do{
-        if(connect(fd_sock, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) != -1)
+        if(connect(fd_sock, (struct sockaddr*) &serv_addr,
+                                        sizeof(serv_addr)) != -1)
             return 0;
 
         nanosleep(&time_sleep, &time_request);
 
-        if(clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+        if(clock_gettime(CLOCK_REALTIME, &current_time) == -1){
+            close(fd_sock);
             return -1;
+        }
 
     }while(current_time.tv_sec < abstime.tv_sec ||
         current_time.tv_nsec < abstime.tv_nsec);
 
-    fprintf(stdout, "\n");
-
-    return 0;
+    errno =  ETIMEDOUT;
+    return -1;
 }
 
 /**
@@ -183,8 +142,11 @@ int openConnection( const char* sockname, int msec,
 *
 * @params sockname : the name of the socket on which the client was connected
 *
-* @returns : -1 in case of error with errno set
-*             0 on success
+* @returns : 0 if successful
+*            -1 if the request fails and errno is set
+*
+* errno :
+*   EINVAL => in case of invalid parameter
 */
 int closeConnection( const char* sockname ){
     if(!sockname){
@@ -200,11 +162,97 @@ int closeConnection( const char* sockname ){
     }
 }
 
-int openFile( const char* pathname, int flags );
+/**
+* API function that allows the client to ask the server
+*       to create or open a file
+*
+*
+*
+* @returns : 0 if successful
+*            -1 if the request fails and errno is set
+*
+* errno :
+*   EINVAL => in case of invalid parameter
+*   EACCES => in case of an error response from the server
+*/
+int openFile( const char* pathname, int flags ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
 
-int readFile( const char* pathname, void** buf, size_t* size );
+    if( !(flags == O_CREATE) && !(flags == O_LOCK) &&
+                                    !(flags == O_CREATE_AND_LOCK)){
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+
+    int len_pathname = strlen(pathname);
+    if(len_pathname <= 0){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if( write_request_OF(fd_sock, pathname, flags) == -1 ){
+        return -1;
+    }
+
+    int *resp = NULL;
+    if( read_response_OF(fd_sock, resp) == -1 ){
+        return -1;
+    }
+
+    if( *resp == FAILED_O){
+        errno = EACCES;
+        return -1;
+    }
+
+    return 0;
+
+}
+
+int readFile( const char* pathname, void** buf, size_t* size ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if( write_request_RF(fd_sock ,pathname) == -1 ){
+        buf = NULL;
+        *size = 0;
+        return -1;
+    }
+
+    if( read_response_RF(fd_sock, (char**) buf, size ) == -1){
+        buf = NULL;
+        *size = 0;
+        return -1;
+    }
+
+    return 0;
+}
 
 int readNFile( int N, const char* dirname );
+
+int writeFile( const char* pathname, const char* dirname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    char *str = NULL;
+    if(read_file(pathname, str, 0) <= 0){
+
+    }
+
+
+    /*
+    if(write_WF(fd_sock) == -1){
+
+    }*/
+
+    return 0;
+}
 
 int appendToFile( const char* pathname, void* buf, size_t size,
                                                 const char* dirname );
