@@ -47,9 +47,12 @@
  // definition of element to be inserted in the hash table
  /*
  typedef struct _file_t {
-   char *key;
-   char *data;
-   struct _file_t *next;
+ 	char *key;
+ 	char *data;
+    size_t size;
+//    time_t t;
+    int log;
+ 	struct _file_t *next;
  } file_t;
  */
  typedef struct _file_t data_hash_t;
