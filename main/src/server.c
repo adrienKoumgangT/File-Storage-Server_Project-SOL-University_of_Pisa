@@ -37,6 +37,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <getopt.h>
+#include <time.h>
+#include <errno.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
+#include <sys/un.h>
+
+#include <assert.h>
 
 #include "server.h"
 #include "utils.h"
@@ -142,7 +152,8 @@ fprintf(stdout, "%d : esco da read_config_server\n", tempo_dgb++);
 **/
 int parsing_str_for_config_server( char* str ){
 
-fprintf(stdout, "%d : entro dentro parsing_str_for_config_server\n", tempo_dgb++);
+fprintf(stdout, "%d : entro dentro parsing_str_for_config_server\n",
+                                tempo_dgb++);
 
     cfs *config = &configurations_server;
 
@@ -158,19 +169,20 @@ fprintf(stdout, "%d : entro dentro parsing_str_for_config_server\n", tempo_dgb++
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
 
-            if( (config->thread_workers = (unsigned long) getNumber(token)) < 0)
+            if( (config->thread_workers = (unsigned long) getNumber(token, 10)) < 0)
                 return -1;
         }else if(strncmp(token, s_m, sizeof(s_m)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
 
-            if( (config->size_memory = (unsigned long) getNumber(token)) < 0)
+            if( (config->size_memory = (unsigned long) getNumber(token, 10)) < 0)
                 return -1;
         }else if(strncmp(token, n_f, sizeof(n_f)) == 0){
             token = strtok_r(NULL, ":", &tmp);
             token[strcspn(token, "\n")] = '\0';
 
-            if( (config->number_of_files = (unsigned long) getNumber(token)) < 0)
+            if( (config->number_of_files = (unsigned long) getNumber(token, 10))
+                                    < 0)
                 return -1;
         }else if(strncmp(token, s_n, sizeof(s_n)) == 0){
             token = strtok_r(NULL, ":", &tmp);
@@ -208,7 +220,8 @@ fprintf(stdout, "%d : esco da parsing_str_for_config_server\n", tempo_dgb++);
 */
 int config_file_parser_for_server( FILE* file ){
 
-fprintf(stdout, "%d : entro dentro config_file_parser_for_server\n", tempo_dgb++);
+fprintf(stdout, "%d : entro dentro config_file_parser_for_server\n",
+                                tempo_dgb++);
 
     int err;
 
@@ -216,8 +229,7 @@ fprintf(stdout, "%d : entro dentro config_file_parser_for_server\n", tempo_dgb++
         return -1;
 
     char *buffer;
-    NULL_EXIT(buffer, (char *) malloc(STR_SIZE),
-                                "malloc failure");
+    SYSCALL_EXIT_EQ("malloc", buffer, (char *) malloc(STR_SIZE), NULL, "malloc failure");
 
     reset_cfs();
 
@@ -232,14 +244,15 @@ fprintf(stdout, "%d : entro dentro config_file_parser_for_server\n", tempo_dgb++
                 return EXIT_FAILURE;
         }
 
-        IS_MINUS_ONE_ERROR(err, parsing_str_for_config_server(buffer),
+        SYSCALL_RETURN_EQ("parsing_str_for_config_server", err,
+                                parsing_str_for_config_server(buffer), -1,
                                 "config file error");
 
     }
 
     read_config_server();
 
-    IS_MINUS_ONE_ERROR(err, is_correct_cfs(), "Failure to configure server");
+    SYSCALL_RETURN_EQ("is_correct_cfs", err, is_correct_cfs(), -1, "Failure to configure server");
 
 fprintf(stdout, "%d : esco da config_file_parser_for_server\n", tempo_dgb++);
 
@@ -262,10 +275,10 @@ fprintf(stdout, "%d : entro dentro config_server\n", tempo_dgb++);
     int err;
     FILE *file_config;
 
-    NULL_EXIT(file_config, fopen(path_file_config, "r"), "fopen");
-    MINUS_ONE_EXIT(err, config_file_parser_for_server(file_config),
-                            "configuration server");
-    VALUE_EXIT(EOF, err, fclose(file_config), "fclose");
+    SYSCALL_EXIT_EQ("fopen", file_config, fopen(path_file_config, "r"), NULL, "fopen");
+    SYSCALL_EXIT_EQ("config_file_parser_for_server", err, config_file_parser_for_server(file_config),
+                            -1, "configuration server");
+    SYSCALL_EXIT_EQ("fclose", err, fclose(file_config), -1, "fclose");
 
     read_config_server();
 
@@ -282,7 +295,8 @@ void run_server( char* path_file_config ){
 fprintf(stdout, "%d : entro dentro run_server\n", tempo_dgb++);
     int err;
 
-    MINUS_ONE_EXIT(err, config_server(path_file_config), "server configuration");
+    SYSCALL_EXIT_EQ("config_server", err, config_server(path_file_config), -1,
+                            "server configuration");
 
 
 fprintf(stdout, "%d : esco da run_server\n", tempo_dgb++);
