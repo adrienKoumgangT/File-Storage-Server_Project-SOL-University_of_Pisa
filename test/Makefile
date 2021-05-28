@@ -33,14 +33,14 @@
 #############################################
 
 CC 			= gcc
-CFLAGS 		= -Wall -Werror -pedantic
+CFLAGS 		= -Wall -Werror -pedantic -std=gnu99
 INCLUDES 	= -I . -I ./include -I ../main/include
 LDFLAGS 	= -L
 OPTFLAGS	= -g
 LIBS 		= -lpthread
 
-TARGETS = $(BIN)test_server \
-			$(BIN)test_client
+TARGETS = $(BIN)server \
+			$(BIN)client
 
 SRC = src/
 OBJ = objs/
@@ -54,29 +54,26 @@ INCMAIN = ../main/include/
 
 
 .PHONY: all clean cleanall
-.SUFFIXES: .c .h
+.SUFFIXES: .c .o .h
 
 all: $(TARGETS)
 
-$(BIN)test_server: $(OBJ)test_server.o $(OBJMAIN)server.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o
+$(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)queue.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
-$(BIN)test_client: $(OBJ)test_client.o $(OBJMAIN)client.o  $(OBJMAIN)interface.o
+$(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
-$(OBJ)test_server.o: $(SRC)test_server.c $(INC)test_hash.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
-
-$(OBJ)test_client.o: $(SRC)test_client.c
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
-
-$(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+$(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h $(INCMAIN)my_file.h $(INCMAIN)my_hash.h $(INCMAIN)queue.h $(INCMAIN)communication.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< -pthread
 
 $(OBJMAIN)client.o: $(SRCMAIN)client.c $(INCMAIN)interface.h $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h
+$(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h $(INCMAIN)communication.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJMAIN)queue.o: $(SRCMAIN)queue.c $(INCMAIN)queue.h $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJMAIN)my_hash.o: $(SRCMAIN)my_hash.c $(INCMAIN)my_hash.h $(INCMAIN)my_file.h
