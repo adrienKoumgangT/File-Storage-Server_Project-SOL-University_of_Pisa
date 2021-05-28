@@ -53,11 +53,15 @@
 
 
 
-// define for all programs
-#define STR_LEN 80
-#define STR_SIZE (STR_LEN * sizeof(char))
+/************** values to be used throughout the program **************/
+
+// possible number of command flags that the client could use
 #define N_FLAGS 13
 #define LEN_BUF_ARGS 27
+
+// definition of the possible dimensions for the strings
+#define STR_LEN 80
+#define STR_SIZE (STR_LEN * sizeof(char))
 
 // define for connection to server
 #define time_to_retry (5 * 1000)
@@ -68,10 +72,12 @@
 //int fd_skt;
 //struct sockaddr_un serv_addr;
 
+int isConnect = 0;
 int print_operation = 0;
+long timeToPause = 0;
+
 
 int flag_f = 0;
-int flag_tt = 0;
 
 int flag_r = 0;
 int flag_R = 0;
@@ -131,8 +137,8 @@ int connect_to_server( char* sockname ){
 
     if( openConnection(socket_name, time_to_retry, abstime) == -1){
         if(socket_name) free(socket_name);
-        if(errno = EINVAL)
-            flag_f = 0;
+        if(errno == EINVAL)
+            isConnect = 0;
         return -1;
     }
 
@@ -140,9 +146,11 @@ int connect_to_server( char* sockname ){
 }
 
 
+/****************************** main client **********************/
+
 int main(int argc, char** argv){
 
-    if(argc < 0){
+    if(argc < 2){
         fprintf(stderr, "FATAL ERROR: this program is used with at least one argument.\nTry '%s -h' for a list and details\n", argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -156,21 +164,13 @@ int main(int argc, char** argv){
             print_help();
             exit(EXIT_SUCCESS);
         }else if(strncmp(argv[i], "-f", 2) == 0){
-            if(!flag_f){ // if the client has not yet been connected to a server
-                flag_f = 1;
+            if(!isConnect){ // if the client has not yet been connected to a server
+                isConnect = 1;
                 if(argv[i][2] != '\0'){ // if the server address is attached to the command '-f'
                     strncpy(sockname, (argv[i] + 2), STR_LEN);
-                    if(connect_to_server(sockname) < 0){
-                        perror("connect_to_server");
-                        exit(EXIT_FAILURE);
-                    }
                 }else{
                     if((i+1 < argc) && strncmp(argv[i+1], "-", 1) != 0){ // if the server address is contained in the following argument, the command '-f'
                         strncpy(sockname, argv[i+1], STR_LEN);
-                        if(connect_to_server(sockname) < 0){
-                            perror("connect_to_server");
-                            exit(EXIT_FAILURE);
-                        }
                     }else{
                         fprintf(stderr, "FATAL ERROR: problem with the server address (socket name) to connect to. try more again\n");
                         exit(EXIT_FAILURE);
@@ -181,15 +181,36 @@ int main(int argc, char** argv){
             }
         }else if(strncmp(argv[i], "-p", 2) == 0){
             print_operation = 1;
+        } else if(strncmp(argv[i], "-t", 2) == 0){
+            if(!timeToPause){
+                char *s = (char *) malloc(STR_LEN * sizeof(char));
+                memset(s, '\0', STR_LEN);
+                if(argv[i][2] != '\0'){
+                    strncpy(s, (argv[i] + 2), STR_LEN);
+                    timeToPause = getNumber(s, 10);
+                }else{
+                    if((i+1 < argc) && (strncmp(argv[i+1], "-", 1) != 0)){
+                        strncpy(s, argv[i+1], STR_LEN);
+                        timeToPause = getNumber(s, 10);
+                    }
+                }
+                if(s) free(s);
+            }
         }
 
         //if(flag_f && print_operation) break;
     }
 
-    if(!flag_f){
-        fprintf(stderr, "FATAL ERROR: no server connection command was given.\nTry '%s -h' for a list and details", argv[0]);
+    if(!isConnect){
+        fprintf(stderr, "FATAL ERROR: no server connection command was given.\nTry '%s -h' for a list and details\n", argv[0]);
         exit(EXIT_FAILURE);
+    }else{
+        if(connect_to_server(sockname) < 0){
+            perror("connect_to_server");
+            exit(EXIT_FAILURE);
+        }
     }
+    extern char* optarg;
     int opt;
     optind = 0;
     opterr = 0;
@@ -197,16 +218,9 @@ int main(int argc, char** argv){
     while((opt = getopt(argc, argv, ":hf:w:W:D:r:R:d:t:l:u:c:p")) != -1){
         switch(opt){
             case 'f':
-                if(!flag_f){
-                    flag_f = 1;
-                }else{
-                    fprintf(stderr,
-                        "ERROR : the socket name has already been set\n");
-                }
-                break;
+            case 'h':
+            case 'p':
             case 't':
-                printf("t\n");
-                //cmd_tt(optarg);
                 break;
             case 'w':
                 printf("w\n");
