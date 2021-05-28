@@ -32,6 +32,9 @@
 * @date 00/05/2021
 */
 
+#ifndef UTILS_H_
+#define UTILS_H_
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,10 +52,10 @@
 #endif
 
 
-#ifndef FUNCTION_UTILS
-#define FUNCTION_UTILS
+#ifndef UTILS_FUNCTIONS
+#define UTILS_FUNCTIONS
 
-long getNumber( char* s, int base ){
+static inline long getNumber( char* s, int base ){
     long val;
     char *endptr, *str;
 
@@ -71,12 +74,8 @@ long getNumber( char* s, int base ){
     return val;
 }
 
-#endif
+#endif /* UTILS_FUNCTIONS */
 
-#ifndef UTILS_H
-#define UTILS_H
-
-#endif
 
 #ifndef SYSCALL_ERROR
 #define SYSCALL_ERROR
@@ -85,7 +84,7 @@ long getNumber( char* s, int base ){
     if((r = (sc)) == ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         exit(errno_copy);                       \
     }
 
@@ -93,7 +92,7 @@ long getNumber( char* s, int base ){
     if((r = (sc)) != ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         exit(errno_copy);                       \
     }
 
@@ -102,7 +101,7 @@ long getNumber( char* s, int base ){
     if((r = (sc)) == ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         errno = errno_copy;                     \
         return r;                               \
     }
@@ -112,17 +111,37 @@ long getNumber( char* s, int base ){
     if((r = (sc)) != ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         errno = errno_copy;                     \
         return r;                               \
     }
+
+
+#define SYSCALL_RETURN_VAL_EQ( name, r, sc, ve, vr, str ) \
+    if((r = (sc)) == ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);                       \
+        errno = errno_copy;                     \
+        return vr;                              \
+    }
+
+
+#define SYSCALL_RETURN_VAL_NEQ( name, r, sc, ve, vr, str ) \
+    if((r = (sc)) != ve){                       \
+        perror(#name);                          \
+        int errno_copy = errno;                 \
+        print_error(str);                       \
+        errno = errno_copy;                     \
+        return vr;                              \
+}
 
 
 #define SYSCALL_PRINT_EQ( name, r, sc, ve, str ) \
     if((r = (sc)) == ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         errno = errno_copy;                     \
     }
 
@@ -131,7 +150,7 @@ long getNumber( char* s, int base ){
     if((r = (sc)) != ve){                       \
         perror(#name);                          \
         int errno_copy = errno;                 \
-        print_error(str);          \
+        print_error(str);                       \
         errno = errno_copy;                     \
     }
 
@@ -158,7 +177,7 @@ static inline void print_error( const char* str ){
     free(p);
 }
 
-#endif
+#endif /* SYSCALL_ERROR */
 
 
 #ifndef THREADS_MANAGEMENT
@@ -182,4 +201,28 @@ static inline void print_error( const char* str ){
         pthread_exit((void*) EXIT_FAILURE);             \
     }
 
-#endif
+#define SIGNAL(c) \
+    if(pthread_cond_signal(c) != 0){                \
+        fprintf(stderr, "FATAL ERROR: signal\n");   \
+        pthread_exit((void*)EXIT_FAILURE);          \
+    }
+
+#define BCAST(c) \
+    if(pthread_cond_broadcast(c) != 0){                 \
+        fprintf(stderr, "FATAL ERROR: broadcast\n");    \
+        pthread-exit((void*)EXIT_FAILURE);              \
+    }
+
+static inline int TRYLOCK( pthread_mutex_t* l ){
+    int r=0;
+    if((r = pthread_mutex_trylock(l)) != 0 && r!=EBUSY){
+        fprintf(stderr, "FATAL ERROR: trylock\n");
+        pthread_exit((void*)EXIT_FAILURE);
+    }
+    return r;
+}
+
+#endif /* THREADS_MANAGEMENT */
+
+
+#endif /* UTILS_H_ */
