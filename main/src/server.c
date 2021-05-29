@@ -78,19 +78,33 @@ static int close_server = 0;
 * Definition of the structure that will have the server configuration data
 */
 typedef struct _config_for_server{
-    unsigned long thread_workers;
-    unsigned long concurrent_clients;
-    unsigned long size_memory;
-    unsigned long number_of_files;
-    char *socket_name;
+    unsigned long   thread_workers;
+    unsigned long   concurrent_clients;
+    unsigned long   size_memory;
+    unsigned long   number_of_files;
+    char*           socket_name;
 }cfs;
 
+/**************************** definition of a structure that takes information
+    about the files opened on the server on the server and
+    the client that opened it ***********************************************/
 
+typedef struct _fi{
+    char*           file;
+    struct _fi*     next;
+}fi;
+
+typedef struct _info_file{
+    int     fd_client;
+    fi*     files;
+}info_file;
+
+static info_file** info_files = NULL;
 
 /*************** server variables *****************/
 
 // variable containing server configurations
-static cfs settings_server;
+static cfs settings_server = {0, 0, 0, 0, NULL};
 
 // file containers
 static hash_t *files_server;
@@ -98,14 +112,13 @@ static hash_t *files_server;
 // request buffer
 static Queue_t* buffer_request;
 
-static int canale[2];
 
 /*********** structure for counting elements in mutual exclusion **********/
 
 typedef struct _count_elem{
-    long count;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    long                count;
+    pthread_mutex_t     lock;
+    pthread_cond_t      cond;
 } count_elem_t;
 
 
@@ -117,7 +130,7 @@ static count_elem_t* clients_connected;
 
 /******************* pipe for communication Workers -> Master ****************/
 
-
+static int canale[2];
 
 /********* cleanup function ****/
 
@@ -135,6 +148,102 @@ count_elem_t* init_struct_count_elem( void ){
     SYSCALL_RETURN_VAL_NEQ("pthread_mutex_init", err, pthread_mutex_init(&t->lock, NULL), 0, NULL, "");
     SYSCALL_RETURN_VAL_NEQ("pthread_cond_init", err, pthread_cond_init(&t->cond, NULL), 0, NULL, "");
     return t;
+}
+
+/*** definition of the management functions of the hash table 'info_files' ***/
+
+int init_hash_info_files( void ){
+    info_files = (info_file **) malloc(settings_server.concurrent_clients * sizeof(info_file *));
+    if(!info_files) return -1;
+    return 0;
+}
+
+int add_info_file( int fd_client, char* file ){
+    int pos = fd_client % settings_server.concurrent_clients;
+    if(info_files[pos] == NULL){
+        info_file* new_info = (info_file *) malloc(sizeof(info_file));
+        if(!new_info) exit(EXIT_FAILURE);
+        new_info->fd_client = fd_client;
+        new_info->files = (fi *) malloc(sizeof(fi));
+        if(!new_info->files) exit(EXIT_FAILURE);
+        new_info->files->file = file;
+        new_info->files->next = NULL;
+        info_files[pos] = new_info;
+    }else{
+        info_file* old_info = info_files[pos];
+        if(old_info->fd_client != fd_client) return -1;
+        if(old_info->files){
+            fi* curr = old_info->files;
+            while((strcmp(curr->file, file) != 0) && (curr->next == NULL))
+                curr = curr->next;
+            if(curr->next == NULL){
+                curr->next = (fi *) malloc(sizeof(fi));
+                if(!curr->next) exit(EXIT_FAILURE);
+                curr->next->file = file;
+                curr->next->next = NULL;
+            }
+        }else{
+            old_info->files = (fi *) malloc(sizeof(fi));
+            old_info->files->file = file;
+            old_info->files->next = NULL;
+        }
+    }
+    return 0;
+}
+
+int find_info_file( int fd_client, char* file ){
+    int pos = fd_client % settings_server.concurrent_clients;
+    if(info_files[pos] == NULL)
+        return -1;
+    if(info_files[pos]->fd_client != fd_client)
+        return -2;
+    if(info_files[pos]->files == NULL)
+        return 0;
+    fi* curr = info_files[pos]->files;
+    while((curr != NULL) && (strcmp(curr->file, file) != 0))
+        curr = curr->next;
+    if(curr == NULL) return 0;
+    return 1;
+}
+
+int remove_info_file( int fd_client, char* file ){
+    int pos = fd_client % settings_server.concurrent_clients;
+    if(info_files[pos] == NULL)
+        return -1;
+    if(info_files[pos]->fd_client != fd_client)
+        return -2;
+    if(info_files[pos]->files == NULL)
+        return -3;
+    fi* prev = NULL;
+    fi* curr = info_files[pos]->files;
+    while((curr != NULL) && (strcmp(curr->file, file) != 0)){
+        prev = curr;
+        curr = curr->next;
+    }
+    if(curr == NULL) return -3;
+    if(prev == NULL)
+        info_files[pos]->files->next = curr->next;
+    else
+        prev->next = curr->next;
+    free(curr);
+    return 0;
+}
+
+void destroy_info_files( void ){
+    if(info_files){
+        for(int i=0; i<settings_server.concurrent_clients; i++)
+            if(info_files[i]){
+                fi* c = info_files[i]->files;
+                fi* n = c;
+                while(n != NULL){
+                    n = c->next;
+                    free(c);
+                    c = n;
+                }
+                free(info_files[i]);
+            }
+        free(info_files);
+    }
 }
 
 /*************** definition of server configuration functions ***************/
@@ -367,7 +476,7 @@ fprintf(stdout, "=>%ld<= : reading server configurations from finished configura
 
 void* workers( void* args ){
 
-    
+
     return NULL;
 }
 
@@ -432,6 +541,8 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
 
     SYSCALL_EXIT_EQ("initQueue", buffer_request, initQueue(), NULL, "");
 
+    SYSCALL_EXIT_EQ("init_hash_info_files", err, init_hash_info_files(), -1, "");
+
     int fdmax = canale[0];
 
     do{
@@ -482,6 +593,7 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
                 // if it is a generic request from a client
                 connfd = i;
                 // int* fd_client_request;
+                FD_CLR(connfd, &set);
                 push(buffer_request, (void *) connfd);
             }
         }
@@ -500,6 +612,7 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
     SYSCALL_EXIT_NEQ("pthread_attr_destroy", err, pthread_attr_destroy(&thread_attr), 0, "");
     free(threads_created);
     free(clients_connected);
+    destroy_info_files();
     SYSCALL_EXIT_EQ("hash_destroy", err, hash_destroy(files_server), -1, "");
     //SYSCALL_EXIT_EQ("deleteQueue", err, deleteQueue(buffer_request), void, "");
     deleteQueue(buffer_request);
