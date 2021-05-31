@@ -37,11 +37,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <getopt.h>
 #include <time.h>
 #include <errno.h>
 #include <limits.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <sys/un.h>
@@ -49,6 +51,7 @@
 #include <assert.h>
 
 #include "interface.h"
+#include "command_handler.h"
 #include "utils.h"
 
 
@@ -60,28 +63,41 @@
 #define LEN_BUF_ARGS 27
 
 // definition of the possible dimensions for the strings
-#define STR_LEN 80
+#define STR_LEN 1024
 #define STR_SIZE (STR_LEN * sizeof(char))
+#define MAX_FILE_NAME 2048
 
 // define for connection to server
 #define time_to_retry (5 * 1000)
 #define time_to_connect_sec 5
 #define time_to_connect_nsec (time_to_connect_sec * 1000000)
 
-//char *socket_name;
-//int fd_skt;
-//struct sockaddr_un serv_addr;
 
+typedef struct _arg_list{
+    char* arg;
+    struct _arg_list* next;
+} arg_list;
+
+
+long time_arg = 1;
+int goodEnd = 1;
+
+int hasCmdF = 0;
+cmd* cmdF = NULL;
 int isConnect = 0;
 int print_operation = 0;
+long timeToPrint = 1;
 long timeToPause = 0;
 
 
 int flag_f = 0;
 
+int flag_D = 0;
+int flag_w_W = 0;
+
 int flag_r = 0;
 int flag_R = 0;
-int flag_d = 0;
+
 int flags_r_d = 0;
 int flags_R_d = 0;
 
@@ -112,6 +128,16 @@ void print_help(){
 }
 
 
+/************* functions related to commands passed by the client ************/
+
+/**
+* function that requires the client to connect to a server
+*
+* @params sockname : address of the server to connect to
+*
+* @returns :    -1
+*               0
+*/
 int connect_to_server( char* sockname ){
     if(!sockname){
         fprintf(stdout, "Error: wrong address! try again...\n");
@@ -121,7 +147,7 @@ int connect_to_server( char* sockname ){
     int len_sock = strlen(sockname);
     if(len_sock >= PATH_MAX){
         fprintf(stdout,
-            "Error: wrong adress! the given address is too long\n try again...");
+            "Error: wrong adress! the given address is too long\n try again...\n");
         return -1;
     }
 
@@ -145,8 +171,186 @@ int connect_to_server( char* sockname ){
     return 0;
 }
 
+/****************************** utility functions *************************/
 
-/****************************** main client **********************/
+
+
+/******** management functions of each command passed by the client *********/
+
+int isdot(const char dir[]) {
+  int l = strlen(dir);
+
+  if ( (l>0 && dir[l-1] == '.') ) return 1;
+  return 0;
+}
+
+arg_list* listOfFile( const char* nomedir, arg_list** list, int* n ){
+    if(*n == 0) return NULL;
+
+    // controllo se il parametro sia una directory
+    struct stat statbuf;
+    int err;
+    SYSCALL_RETURN_VAL_EQ("stat", err, stat(nomedir, &statbuf), -1, NULL, "");
+
+    DIR *dir;
+    if((dir = opendir(nomedir)) == NULL){
+        perror("opendir");
+        fprintf(stderr, "ERROR: error opening directory '%s'\n", nomedir);
+        return NULL;
+    }else{
+        struct dirent* file;
+        arg_list* last = *list;
+
+        while(*n-- != 0 && (errno = 0, file = readdir(dir)) != NULL){
+            struct stat statbuf;
+            char filename[MAX_FILE_NAME];
+            int len1 = strlen(nomedir);
+            int len2 = strlen(file->d_name);
+            if((len1 + len2 + 2) > MAX_FILE_NAME){
+                fprintf(stderr, "ERROR: MAX_FILE_NAME too small : %d\n", MAX_FILE_NAME);
+                return NULL;
+            }
+            strncpy(filename, nomedir, MAX_FILE_NAME-1);
+            strncat(filename, "/", MAX_FILE_NAME-1);
+            strncat(filename, file->d_name, MAX_FILE_NAME-1);
+
+            if(stat(filename, &statbuf)==-1) {
+		      perror("eseguendo la stat");
+		      fprintf(stderr, "ERROR: Error in file %s\n", filename);
+		      return NULL;
+	        }
+
+	        if(S_ISDIR(statbuf.st_mode)){
+		              if ( !isdot(filename) ){
+                          last = listOfFile(filename, &last, n);
+                          if(last == NULL) return NULL;
+                      }
+	        }else{
+                arg_list* new_file = (arg_list *) malloc(sizeof(arg_list));
+                int len = strlen(file->d_name);
+                new_file->arg = (char *) malloc((len+1) * sizeof(char));
+                memset(new_file->arg, '\0', len+1);
+                strncpy(new_file->arg, file->d_name, len+1);
+                new_file->next = NULL;
+                if(last == NULL) *list = new_file;
+                else last->next = new_file;
+                last = new_file;
+	       }
+        }
+        if (errno != 0) perror("readdir");
+	    closedir(dir);
+        return last;
+    }
+}
+
+// -w dirname[,n=0] : invia al server i file nella cartella ‘dirname’,
+// ovvero effettua una richiesta di scrittura al server per i file
+int do_cmd_w( char* args, char* dirname ){
+    if(!args) return -1;
+
+    arg_list* list_files = NULL;
+    int hasComma = 0;
+    int i=0;
+    //int count=-1;
+    while((args[i] != '\0') && (args[i] != ',')) i++;
+    if(args[i] == ',') hasComma = 1;
+
+    if(!hasComma){
+        int n = -1;
+        if(listOfFile(dirname, &list_files, &n) != NULL){
+            arg_list* elem = list_files;
+            arg_list* prev = NULL;
+            while(elem != NULL){
+                if(writeFile(elem->arg, dirname) == -1){
+                    fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", args);
+                    perror("writeFile");
+                }
+                prev = elem;
+                elem = elem->next;
+                free(prev->arg);
+                free(prev);
+            }
+        }
+    }else{/*
+        arg_list* list_args = NULL;
+        int n = 0;
+        if((n = parse_arguments(args, &list_args)) == -1){
+            fprintf(stderr, "ERROR: Bad parameter value for parsing\n");
+            return -1;
+        }
+
+        if(n != 2){
+            fprintf(stderr, "ERROR: Bad argument for comand '-w'\n");
+            return -1;
+        }*/
+
+    }
+
+    return 0;
+}
+
+// -W file1[,file2] lista dei file da scrivere sul server
+int do_cmd_W( char* args, char* dirname ){
+    if(!args) return -1;
+
+    // arg_list* list_args = NULL;
+    int hasComma = 0;
+    int i=0;
+    while((args[i] != '\0') && (args[i] != ',')) i++;
+    if(args[i] == ',') hasComma = 1;
+
+    if(!hasComma){
+        if(writeFile(args, dirname) == -1){
+            fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", args);
+            perror("writeFile");
+            return -1;
+        }
+    }else{/*
+        int n = 0;
+        if((n = parse_arguments(args, &list_args)) != 0){
+            while(list_args){
+                arg_list* corr = list_args;
+                list_args = list_args->next;
+                if(writeFile(corr->arg, dirname) == -1){
+                    fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", corr->arg);
+                    perror("writeFile");
+                    free(corr->arg);
+                    free(corr);
+                    while(list_args){
+                        corr = list_args;
+                        list_args = list_args->next;
+                        free(corr->arg);
+                        free(corr);
+                    }
+                    return -1;
+                }
+                free(corr->arg);
+                free(corr);
+            }
+        }*/
+    }
+
+    return 0;
+}
+
+/********************************* main client ******************************/
+
+/*
+#define cmd_w (0)
+#define cmd_W (1)
+#define cmd_D (3)
+#define cmd_r (4)
+#define cmd_R (5)
+#define cmd_d (6)
+#define cmd_tt (7)
+#define cmd_l (8)
+#define cmd_u (9)
+#define cmd_c (10)
+
+#define cmd_p (11)
+#define cmd_f (12)
+#define cmd_h (13)
+*/
 
 int main(int argc, char** argv){
 
@@ -155,129 +359,76 @@ int main(int argc, char** argv){
         exit(EXIT_FAILURE);
     }
 
-    char sockname[STR_LEN];
-    memset(sockname, '\0', STR_LEN);
+    int i=0;
 
-    int i;
-    for(i=0; i<argc; i++){
-        if(strncmp(argv[i], "-h", 2) == 0){
-            print_help();
-            exit(EXIT_SUCCESS);
-        }else if(strncmp(argv[i], "-f", 2) == 0){
-            if(!isConnect){ // if the client has not yet been connected to a server
-                isConnect = 1;
-                if(argv[i][2] != '\0'){ // if the server address is attached to the command '-f'
-                    strncpy(sockname, (argv[i] + 2), STR_LEN);
-                }else{
-                    if((i+1 < argc) && strncmp(argv[i+1], "-", 1) != 0){ // if the server address is contained in the following argument, the command '-f'
-                        strncpy(sockname, argv[i+1], STR_LEN);
-                    }else{
-                        fprintf(stderr, "FATAL ERROR: problem with the server address (socket name) to connect to. try more again\n");
-                        exit(EXIT_FAILURE);
-                    }
-                }
-            }else{
-                fprintf(stderr, "the client is already connected to a server with address: %s\n", sockname);
+    if(initCmds(argc, argv) == EXIT_FAILURE){
+        char** s = getErrors();
+        for(i=0; i<number_of_errors; i++){
+            if(s[i]) fprintf(stderr, "%s\n", s[i]);
+        }
+        finish();
+        return EXIT_FAILURE;
+    }
+
+    if(hasHCmd()){
+        print_help();
+        goto endClient;
+    }
+
+    if(hasPCmd()){
+        print_operation = 1;
+        fprintf(stdout, "INFO: print operations enable\n\n");
+    }
+
+    char* sockname = getF();
+    if(print_operation) fprintf(stdout, "[%ld] Attempt to connect to the server at: '%s'.\n", timeToPrint++, sockname);
+    if(connect_to_server(sockname) == -1){
+        goodEnd = 0;
+        goto endClient;
+    }
+    if(print_operation) fprintf(stdout, "[%ld] Connection to server successful.\n", timeToPrint)
+
+
+    cmd* mycmd = NULL;
+
+    while((mycmd = nextCmd()) != NULL){
+        switch(mycmd->command){
+            case cmd_w:{
+                break;
             }
-        }else if(strncmp(argv[i], "-p", 2) == 0){
-            print_operation = 1;
-        } else if(strncmp(argv[i], "-t", 2) == 0){
-            if(!timeToPause){
-                char *s = (char *) malloc(STR_LEN * sizeof(char));
-                memset(s, '\0', STR_LEN);
-                if(argv[i][2] != '\0'){
-                    strncpy(s, (argv[i] + 2), STR_LEN);
-                    timeToPause = getNumber(s, 10);
-                }else{
-                    if((i+1 < argc) && (strncmp(argv[i+1], "-", 1) != 0)){
-                        strncpy(s, argv[i+1], STR_LEN);
-                        timeToPause = getNumber(s, 10);
-                    }
-                }
-                if(s) free(s);
+            case cmd_W:{
+                break;
+            }
+            case cmd_D:{
+                break;
+            }
+            case cmd_r:{
+                break;
+            }
+            case cmd_R:{
+                break;
+            }
+            case cmd_d:{
+                break;
+            }
+            case cmd_tt:{
+
+            }
+            case cmd_l:{
+                break;
+            }
+            case cmd_u:{
+                break;
+            }
+            case cmd_c:{
+                break;
             }
         }
-
-        //if(flag_f && print_operation) break;
     }
 
-    if(!isConnect){
-        fprintf(stderr, "FATAL ERROR: no server connection command was given.\nTry '%s -h' for a list and details\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }else{
-        if(connect_to_server(sockname) < 0){
-            perror("connect_to_server");
-            exit(EXIT_FAILURE);
-        }
-    }
-    extern char* optarg;
-    int opt;
-    optind = 0;
-    opterr = 0;
+    endClient:
+        finish();
 
-    while((opt = getopt(argc, argv, ":hf:w:W:D:r:R:d:t:l:u:c:p")) != -1){
-        switch(opt){
-            case 'f':
-            case 'h':
-            case 'p':
-            case 't':
-                break;
-            case 'w':
-                printf("w\n");
-                //cmd_w(optarg);
-                break;
-            case 'W':
-                printf("W\n");
-                //cmd_W(optarg);
-                break;
-            case 'D':
-                printf("D\n");
-                //cmd_D(optarg);
-                break;
-            case 'r':
-                printf("r\n");
-                //cmd_r(optarg);
-                break;
-            case 'R':
-                printf("R\n");
-                //cmd_R(optarg);
-                break;
-            case 'd':
-                printf("d\n");
-                //cmd_d(optarg);
-                break;
-            case 'l':
-                printf("l\n");
-                //cmd_l(optarg);
-                break;
-            case 'u':
-                printf("u\n");
-                //cmd_u(optarg);
-                break;
-            case 'c':
-                printf("c\n");
-                //cmd_c(optarg);
-                break;
-            case ':':
-                switch(optopt){
-                    case 'R':
-                        //cmd_R( NULL );
-                        break;
-                    case 't':
-                        //cmd_tt( NULL );
-                        break;
-                    default:
-                        fprintf(stderr,
-                            "l'opzione '-%c' richiede un argomento\n",
-                                        optopt);
-                }
-                break;
-            default: /* case '?': */
-                fprintf(stderr, "Error: command not recognized\n");
-        }
-    }
-
-
-
-    return EXIT_SUCCESS;
+    if(!goodEnd) return EXIT_FAILURE;
+    else return EXIT_SUCCESS;
 }
