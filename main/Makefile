@@ -45,27 +45,44 @@ BIN = bin/
 INC = include/
 
 
-TARGETS = test
+TARGETS = $(BIN)server \
+			$(BIN)client
 
 
 .PHONY: all clean cleanall
 .SUFFIXES: .c .h
 
+all: $(TARGETS)
 
-$(BIN)client: $(OBJ)main_server.o $(OBJ)client.o $(OBJ)interface.o $(OBJ)my_file.o $(OBJS)my_hash.o
+$(BIN)server: $(OBJ)server.o $(OBJ)queue.o $(OBJ)my_hash.o $(OBJ)my_file.o
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LIBS)
+
+$(BIN)client: $(OBJ)client.o  $(OBJ)interface.o $(OBJ)command_handler.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
-$(OBJ)test.o: $(SRC)test.c $(INC)test_hash.h
+$(OBJ)server.o: $(SRC)server.c $(INC)utils.h $(INC)my_file.h $(INC)my_hash.h $(INC)queue.h $(INC)communication.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
+
+$(OBJ)client.o: $(SRC)client.c $(INC)interface.h $(INC)utils.h $(INC)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)my_hash.o: $(SRCMAIN)my_hash.c $(INCMAIN)my_hash.h $(INCMAIN)my_file.h
+$(OBJ)interface.o: $(SRC)interface.c $(INC)interface.h $(INC)communication.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)my_file.o: $(SRCMAIN)my_file.c $(INCMAIN)my_file.h $(INCMAIN)my_hash.h
+$(OBJ)command_handler.o: $(SRC)command_handler.c $(INC)command_handler.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJ)queue.o: $(SRC)queue.c $(INC)queue.h $(INC)utils.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJ)my_hash.o: $(SRC)my_hash.c $(INC)my_hash.h $(INC)my_file.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJ)my_file.o: $(SRC)my_file.c $(INC)my_file.h $(INC)my_hash.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(BIN)test
+	rm -f $(BIN)client $(server)
 
 cleanall: clean
 	\rm -f *.o *~
