@@ -475,7 +475,52 @@ fprintf(stdout, "=>%ld<= : reading server configurations from finished configura
 /****************************** thread workers *******************************/
 
 void* workers( void* args ){
+    int operation, err;
+    int toClose = 0;
+    while(!close_server){
+        toClose = 0;
+        long fd_client_r = (long) pop(buffer_request);
 
+        // I read the type of request made by the client
+        if(read(fd_client_r, &operation, sizeof(int)) == -1){
+            toClose = 1;
+            goto fine_while;
+        }
+
+        char* pathname = NULL;
+
+        switch(operation){
+            case _OF_O:{ // if it's an 'open file' request
+                // I read the request for 'open file'
+                if(read_request_OF(fd_client_r, pathname) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+
+                // TODO: trattare la richiesta
+                int resp = 0;
+
+                // I write the result of the request for 'open file'
+                if(write_response_OF(fd_client_r, resp) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+                break;
+            }
+            default:{
+                toClose = 1;
+                goto fine_while;
+            }
+        }
+
+
+
+        // TODO: gestire le diverse richieste
+
+        fine_while:
+            SYSCALL_EXIT_EQ("write", err, write(canale[0], &fd_client_r, sizeof(long)), -1, "");
+            SYSCALL_EXIT_EQ("write", err, write(canale[0], &toClose, sizeof(int)), -1, "");
+    }
 
     return NULL;
 }
@@ -579,11 +624,10 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
 
                 // if it is the worker thread who has finished handling a client request
                 if(i == canale[0]){
-                    char toClose[2];
-                    memset(toClose, '\0', 2);
+                    int toClose = 0;
                     SYSCALL_EXIT_EQ("read", err, read(canale[0], &connfd, sizeof(long)), -1, "");
-                    SYSCALL_EXIT_EQ("read", err, read(canale[0], toClose, 2), -1, "");
-                    if(strncmp(toClose, "N", 2) == 0){
+                    SYSCALL_EXIT_EQ("read", err, read(canale[0], &toClose, sizeof(int)), -1, "");
+                    if(toClose){
                         FD_SET(connfd, &set);
                         if(connfd > fdmax) fdmax = connfd;
                     }
