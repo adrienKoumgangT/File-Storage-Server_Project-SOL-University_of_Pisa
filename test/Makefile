@@ -59,18 +59,21 @@ INCMAIN = ../main/include/
 all: $(TARGETS)
 
 $(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)queue.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LIBS)
 
-$(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o
+$(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o $(OBJMAIN)command_handler.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
 $(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h $(INCMAIN)my_file.h $(INCMAIN)my_hash.h $(INCMAIN)queue.h $(INCMAIN)communication.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< -pthread
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
 
-$(OBJMAIN)client.o: $(SRCMAIN)client.c $(INCMAIN)interface.h $(INCMAIN)utils.h
+$(OBJMAIN)client.o: $(SRCMAIN)client.c $(INCMAIN)interface.h $(INCMAIN)utils.h $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h $(INCMAIN)communication.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJMAIN)command_handler.o: $(SRCMAIN)command_handler.c $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJMAIN)queue.o: $(SRCMAIN)queue.c $(INCMAIN)queue.h $(INCMAIN)utils.h
@@ -83,7 +86,7 @@ $(OBJMAIN)my_file.o: $(SRCMAIN)my_file.c $(INCMAIN)my_file.h $(INCMAIN)my_hash.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(BIN)test_server $(BIN)test_client
+	rm -f $(BIN)server $(BIN)client
 
 cleanall: clean
 	\rm -f *.o *~
