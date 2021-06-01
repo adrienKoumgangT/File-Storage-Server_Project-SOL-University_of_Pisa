@@ -73,6 +73,7 @@ char* getFirstDdir( void );
 char* getFirstddir( void );
 char* getF( void );
 cmd* nextCmd( void );
+void backToBegin( void );
 char** getErrors( void );
 
 int initCmds( int, char** );

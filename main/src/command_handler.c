@@ -67,6 +67,7 @@ typedef struct _cmd{
 
 static cmd* listCmds = NULL;
 static cmd* lastCmd = NULL;
+static cmd* ptrCmd = NULL;
 
 static int cmd_help = 0;
 static int cmd_print = 0;
@@ -151,10 +152,14 @@ char* getF( void ){
 }
 
 cmd* nextCmd( void ){
-    if(!listCmds) return NULL;
-    cmd* next_cmd = listCmds;
-    listCmds = listCmds->next;
+    if(!ptrCmd) return NULL;
+    cmd* next_cmd = ptrCmd;
+    ptrCmd = ptrCmd->next;
     return next_cmd;
+}
+
+void backToBegin( void ){
+    ptrCmd = listCmds;
 }
 
 /**
@@ -552,9 +557,11 @@ int initCmds( int argc, char** argv ){
             }
             default:{
                 hasError = 1;
-                if(!msgError[cmd_c]) msgError[cmd_d] = (char *) malloc(STR_LEN * sizeof(char));
-                memset(msgError[cmd_c], '\0', STR_LEN);
-                strncpy(msgError[cmd_c], "FATAL ERROR: the '-c' command takes an argument. try more again\n", STR_LEN);
+                if(!msgError[number_of_errors-1]) msgError[number_of_errors-1] = (char *) malloc(STR_LEN * sizeof(char));
+                memset(msgError[number_of_errors-1], '\0', STR_LEN);
+                strncpy(msgError[number_of_errors-1], "FATAL ERROR: command '", STR_LEN);
+                strncat(msgError[number_of_errors-1], argv[i], STR_LEN);
+                strncat(msgError[number_of_errors-1], "' not recognized\n", STR_LEN);
             }
         }
         i++;
@@ -573,6 +580,8 @@ int initCmds( int argc, char** argv ){
         memset(msgError[cmd_d], '\0', STR_LEN);
         strncpy(msgError[cmd_d], "FATAL ERROR: the '-d' argument requires to be used with the '-r' or '-R' argument\n", STR_LEN);
     }
+
+    ptrCmd = listCmds;
 
     if(hasError) return EXIT_FAILURE;
     else return EXIT_SUCCESS;
