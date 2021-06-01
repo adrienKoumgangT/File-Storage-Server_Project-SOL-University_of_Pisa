@@ -89,17 +89,8 @@ int print_operation = 0;
 long timeToPrint = 1;
 long timeToPause = 0;
 
-
-int flag_f = 0;
-
-int flag_D = 0;
-int flag_w_W = 0;
-
-int flag_r = 0;
-int flag_R = 0;
-
-int flags_r_d = 0;
-int flags_R_d = 0;
+char* dirname_D[STR_LEN];
+char* dirname_d[STR_LEN];
 
 struct timespec time_dodo;
 
@@ -245,91 +236,93 @@ arg_list* listOfFile( const char* nomedir, arg_list** list, int* n ){
 
 // -w dirname[,n=0] : invia al server i file nella cartella ‘dirname’,
 // ovvero effettua una richiesta di scrittura al server per i file
-int do_cmd_w( char* args, char* dirname ){
+int do_cmd_w( char* arg, long n ){
     if(!args) return -1;
-
-    arg_list* list_files = NULL;
-    int hasComma = 0;
-    int i=0;
-    //int count=-1;
-    while((args[i] != '\0') && (args[i] != ',')) i++;
-    if(args[i] == ',') hasComma = 1;
-
-    if(!hasComma){
-        int n = -1;
-        if(listOfFile(dirname, &list_files, &n) != NULL){
-            arg_list* elem = list_files;
-            arg_list* prev = NULL;
-            while(elem != NULL){
-                if(writeFile(elem->arg, dirname) == -1){
-                    fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", args);
-                    perror("writeFile");
-                }
-                prev = elem;
-                elem = elem->next;
-                free(prev->arg);
-                free(prev);
-            }
-        }
-    }else{/*
-        arg_list* list_args = NULL;
-        int n = 0;
-        if((n = parse_arguments(args, &list_args)) == -1){
-            fprintf(stderr, "ERROR: Bad parameter value for parsing\n");
-            return -1;
-        }
-
-        if(n != 2){
-            fprintf(stderr, "ERROR: Bad argument for comand '-w'\n");
-            return -1;
-        }*/
-
-    }
 
     return 0;
 }
 
 // -W file1[,file2] lista dei file da scrivere sul server
-int do_cmd_W( char* args, char* dirname ){
+int do_cmd_W( char** args, long n ){
     if(!args) return -1;
 
-    // arg_list* list_args = NULL;
-    int hasComma = 0;
-    int i=0;
-    while((args[i] != '\0') && (args[i] != ',')) i++;
-    if(args[i] == ',') hasComma = 1;
+    return 0;
+}
 
-    if(!hasComma){
-        if(writeFile(args, dirname) == -1){
-            fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", args);
-            perror("writeFile");
-            return -1;
-        }
-    }else{/*
-        int n = 0;
-        if((n = parse_arguments(args, &list_args)) != 0){
-            while(list_args){
-                arg_list* corr = list_args;
-                list_args = list_args->next;
-                if(writeFile(corr->arg, dirname) == -1){
-                    fprintf(stderr, "ERROR: Failure to write the file '%s' to the server\n", corr->arg);
-                    perror("writeFile");
-                    free(corr->arg);
-                    free(corr);
-                    while(list_args){
-                        corr = list_args;
-                        list_args = list_args->next;
-                        free(corr->arg);
-                        free(corr);
-                    }
-                    return -1;
-                }
-                free(corr->arg);
-                free(corr);
-            }
-        }*/
+int do_cmd_D( char* arg ){
+    if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-w' and '-W' commands : %s\n", timeToPrint++ ,arg);
+    memset(dirname_D, '\0', STR_LEN);
+    strncpy(dirname_D, arg, STR_LEN);
+    return 0;
+}
+
+int do_cmd_r( char** args, long n ){
+    return 0;
+}
+
+int do_cmd_R( long arg ){
+    if(print_operation){
+        if(n<=0) fprintf(stdout, "[%ld] reading any n files from the server\n", timeToPrint++);
+        else fprintf(stdout, "[%ld] reading any '%ld' files from the server\n", timeToPrint++, arg);
     }
+    if(readNFile((int) arg, dirname_d) == -1){
+        if(n<=0) fprintf(stdout, "[%ld] failed to read any n files from the server\n", timeToPrint++);
+        else fprintf(stdout, "[%ld] failed to read any '%ld' files from the server\n", timeToPrint++, arg);
+        return -1;
+    }
+    if(print_operation){
+        if(n<=0) fprintf(stdout, "[%ld] successful reading any n files from the server\n", timeToPrint++);
+        else fprintf(stdout, "[%ld] successful reading any '%ld' files from the server\n", timeToPrint++, arg);
+    }
+    return 0;
+}
 
+int do_cmd_d( char* arg ){
+    if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-r' and '-R' commands : %s\n", timeToPrint++ ,arg);
+    memset(dirname_d, '\0', STR_LEN);
+    strncpy(dirname_d, arg, STR_LEN);
+    return 0;
+}
+
+int do_cmd_tt( long arg ){
+    if(print_operation) fprintf(stdout, "[%ld] change of waiting time between 2 requests : %d milliseconds\n", timeToPrint, arg);
+    timeToPause = arg;
+    return 0;
+}
+
+int do_cmd_l( char** args, long n ){
+    for(int i=0; i<n; i++){
+        if(print_operation) fprintf(stdout, "[%ld] acquisition of the mutual exclusion on the file '%s'\n", timeToPrint++, args[i]);
+        if(lockFile(args[i]) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] acquisition of mutual exclusion on file '%s' failed\n", timeToPrint++, args[i]);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful acquisition of mutual exclusion on file '%s'\n", timeToPrint++, args[i]);
+        }
+    }
+    return 0;
+}
+
+int do_cmd_u( char** args, long n ){
+    for(int i=0; i<n; i++){
+        if(print_operation) fprintf(stdout, "[%ld] releasing of the mutual exclusion on the file '%s'\n", timeToPrint++, args[i]);
+        if(unlockFile(args[i]) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] releasing of mutual exclusion on file '%s' failed\n", timeToPrint++, args[i]);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful releasing of mutual exclusion on file '%s'\n", timeToPrint++, args[i]);
+        }
+    }
+    return 0;
+}
+
+int do_cmd_c( char** args, long n ){
+    for(int i=0; i<n; i++){
+        if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server\n", timeToPrint++, args[i]);
+        if(removeFile(args[i]) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server failed\n", timeToPrint++, args[i]);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful removing the '%s' file on the server\n", timeToPrint++, args[i]);
+        }
+    }
     return 0;
 }
 
@@ -386,47 +379,95 @@ int main(int argc, char** argv){
         goodEnd = 0;
         goto endClient;
     }
-    if(print_operation) fprintf(stdout, "[%ld] Connection to server successful.\n", timeToPrint)
+    if(print_operation) fprintf(stdout, "[%ld] Connection to server successful.\n", timeToPrint);
 
+    char* mdir = getFirstDdir();
+    if(mdir){
+        memset(dirname_D, '\0', STR_LEN);
+        strncpy(dirname_D, mdir, STR_LEN);
+    }
+    mdir = getFirstddir();
+    if(mdir){
+        memset(dirname_d, '\0', STR_LEN);
+        strncpy(dirname_d, mdir, STR_LEN);
+    }
+    mdir = NULL;
 
     cmd* mycmd = NULL;
 
     while((mycmd = nextCmd()) != NULL){
         switch(mycmd->command){
             case cmd_w:{
+                if(do_cmd_w(mycmd->list_of_arguments[0], mycmd->intArg) == -1){
+
+                }
                 break;
             }
             case cmd_W:{
+                if(do_cmd_W(mycmd->list_of_arguments, mycmd->countArgs) == -1){
+
+                }
                 break;
             }
             case cmd_D:{
+                if(do_cmd_D(mycmd->list_of_arguments[0]) == -1){
+
+                }
                 break;
             }
             case cmd_r:{
+                if(do_cmd_r(mycmd->list_of_arguments, mycmd->countArgs) == -1){
+
+                }
                 break;
             }
             case cmd_R:{
+                if(do_cmd_R(mycmd->intArg) == -1){
+
+                }
                 break;
             }
             case cmd_d:{
+                if(do_cmd_d(mycmd->list_of_arguments[0]) == -1){
+
+                }
                 break;
             }
             case cmd_tt:{
+                if(do_cmd_tt(mycmd->intArg) == -1){
 
+                }
             }
             case cmd_l:{
+                if(do_cmd_l(mycmd->list_of_arguments, mycmd->countArgs) == -1){
+
+                }
                 break;
             }
             case cmd_u:{
+                if(do_cmd_u(mycmd->list_of_arguments, mycmd->countArgs) == -1){
+
+                }
                 break;
             }
             case cmd_c:{
+                if(do_cmd_c(mycmd->list_of_arguments, mycmd->countArgs) == -1){
+
+                }
                 break;
             }
+            default:{
+                if(print_operation) fprintf(stderr, "[%ld] FATAL ERROR: error while running the client.\n", timeToPrint++);
+                goto endClient;
+            }
         }
+
+        usleep(timeToPause * 1000);
     }
 
     endClient:
+        if(print_operation) fprintf(stdout, "[%ld] close the connection with server : '%s'\n", timeToPrint++, sockname);
+        closeConnection(sockname);
         finish();
 
     if(!goodEnd) return EXIT_FAILURE;
