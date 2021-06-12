@@ -49,30 +49,29 @@
 #include <string.h>
 #include <time.h>
 
-int read_file( const char *pathname, char* str, int flag ){
+static inline int read_file( const char *pathname, char* str, size_t* sz, int flag ){
 
     int fd;
     if((fd = open(pathname, O_RDONLY)) == -1){ // TODO: cambiare O_RDONLY con flag
         return -1;
     }
-    size_t sz;
     struct stat info;
     fstat(fd, &info);
-    sz = info.st_size;
+    *sz = info.st_size;
     if(str)
         free(str);
-    str = malloc(sz);
-    if( read(fd, str, sz) == -1 ){
+    str = malloc(*sz);
+    if( read(fd, str, *sz) == -1 ){
         return -1;
     }
 
     close(fd);
 
-    return sz;
+    return *sz;
 }
 
 
-int write_file( char *pathname, char* str, size_t sz ){
+static inline int write_file( char *pathname, char* str, size_t sz ){
 
     if(!str)
         return -1;
@@ -87,6 +86,19 @@ int write_file( char *pathname, char* str, size_t sz ){
     }
 
     close(fd);
+
+    return 0;
+}
+
+static inline int write_file_in_dir( char* dirname, char* namefile, char* str, size_t sz ){
+    DIR *dir;
+    if((dir = opendir(dirname)) == NULL){
+        perror("opendir");
+        fprintf(stderr, "ERROR: error opening directory '%s'\n", dirname);
+        return -1;
+    }else{
+
+    }
 
     return 0;
 }
