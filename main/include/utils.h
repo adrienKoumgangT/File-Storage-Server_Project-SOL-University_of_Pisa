@@ -51,6 +51,16 @@
 #define EXTRA_LEN_PRINT_ERROR 512
 #endif
 
+// definition of measurement values
+#ifndef MEASURE_VALUES
+#define MEASURE_VALUES
+
+// definition of the possible dimensions for the strings
+#define STR_LEN 2048
+#define STR_SIZE (STR_LEN * sizeof(char))
+#define MAX_FILE_NAME 2048
+
+#endif
 
 #ifndef UTILS_FUNCTIONS
 #define UTILS_FUNCTIONS
@@ -72,6 +82,38 @@ static inline long getNumber( char* s, int base ){
 
     // If we got here, strtol() successfully parsed a number
     return val;
+}
+
+static inline char* getPath( char* filename, char* pathdir, size_t len_pathdir ){
+    if(!filename) return NULL;
+    size_t len = strlen(filename);
+    if(len <= 0) return NULL;
+
+    // if the path is already absolute, I return it
+    if(filename[0] == '/') return filename;
+
+    if(len + len_pathdir + 2 > MAX_FILE_NAME) return NULL;
+    char* new_path = (char *) malloc((len + len_pathdir + 2) * sizeof(char));
+    memset(new_path, '\0', len+len_pathdir+2);
+    strncpy(new_path, pathdir, len_pathdir+1);
+    strncat(new_path, "/", 2);
+    strncat(new_path, filename, len+1);
+    return new_path;
+}
+
+static inline char* setNameFile( const char* dirname, const char* filepath ){
+    if(!dirname || !filepath) return NULL;
+    size_t len_d = strlen(dirname);
+    size_t len_f = strlen(filepath);
+    if(len_d == 0 || len_f == 0) return NULL;
+
+    char* pathfile = (char *) malloc((len_d + len_f + 2) * sizeof(char));
+    memset(pathfile, '\0', len_d+len_f+2);
+    strncpy(pathfile, dirname, len_d);
+    strncat(pathfile, "/", 2);
+    strncat(pathfile, filepath, len_f);
+    pathfile[len_d+len_f] = '/';
+    return pathfile;
 }
 
 #endif /* UTILS_FUNCTIONS */
