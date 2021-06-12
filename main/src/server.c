@@ -57,8 +57,6 @@
 #include "queue.h"
 
 // define for all programs
-#define STR_LEN 80
-#define STR_SIZE (STR_LEN * sizeof(char))
 #define DIM_HASH_TABLE 103
 
 // define for config server
@@ -501,7 +499,7 @@ void* workers( void* args ){
                 int resp = 0;
 
                 // I write the result of the request for 'open file'
-                if(write_response_OF(fd_client_r, resp) == -1){
+                if(write_response_OF(fd_client_r, resp, NULL) == -1){
                     toClose = 1;
                     goto fine_while;
                 }
