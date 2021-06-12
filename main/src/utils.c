@@ -84,7 +84,7 @@ static inline void print_error(const char * str, ...) {
 }
 
 
-/** 
+/**
  * \brief Controlla se la stringa passata come primo argomento e' un numero.
  * \return  0 ok  1 non e' un numbero   2 overflow/underflow
  */
@@ -97,7 +97,7 @@ static inline int isNumber(const char* s, long* n) {
   if (errno == ERANGE) return 2;    // overflow/underflow
   if (e != NULL && *e == (char)0) {
     *n = val;
-    return 0;   // successo 
+    return 0;   // successo
   }
   return 1;   // non e' un numero
 }
@@ -105,7 +105,7 @@ static inline int isNumber(const char* s, long* n) {
 #define LOCK(l)      if (pthread_mutex_lock(l)!=0)        { \
     fprintf(stderr, "ERRORE FATALE lock\n");		    \
     pthread_exit((void*)EXIT_FAILURE);			    \
-  }   
+  }
 #define UNLOCK(l)    if (pthread_mutex_unlock(l)!=0)      { \
   fprintf(stderr, "ERRORE FATALE unlock\n");		    \
   pthread_exit((void*)EXIT_FAILURE);				    \
@@ -131,12 +131,12 @@ static inline int isNumber(const char* s, long* n) {
     pthread_exit((void*)EXIT_FAILURE);						\
   }
 static inline int TRYLOCK(pthread_mutex_t* l) {
-  int r=0;		
-  if ((r=pthread_mutex_trylock(l))!=0 && r!=EBUSY) {		    
-    fprintf(stderr, "ERRORE FATALE unlock\n");		    
-    pthread_exit((void*)EXIT_FAILURE);			    
-  }								    
-  return r;	
+  int r=0;
+  if ((r=pthread_mutex_trylock(l))!=0 && r!=EBUSY) {
+    fprintf(stderr, "ERRORE FATALE unlock\n");
+    pthread_exit((void*)EXIT_FAILURE);
+  }
+  return r;
 }
 
 #endif /* _UTIL_H */
