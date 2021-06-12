@@ -23,7 +23,7 @@
 */
 
 /**
-* @file interface.h
+* @file interface.c
 *
 * definition of utility functions for client
 *
@@ -62,14 +62,14 @@
 
 //#include "utils.h"
 #include "interface.h"
-#include "comunication.h"
+#include "communication.h"
 #include "read_write_file.h"
 
 
 static int fd_sock;
 static struct sockaddr_un serv_addr;
-int bytes_read;
-int bytes_write;
+long bytes_read;
+long bytes_write;
 
 
 
@@ -86,21 +86,15 @@ int bytes_write;
 *
 * errno :
 *   EINVAL => in case of invalid parameter
+*   ETIME => in case of timer expired
 */
-// TODO: da verificare fino in fondo
-// (da verificare e fare concodare con il progetto)
 int openConnection( const char* sockname, int msec,
                                         const struct timespec abstime ){
-//    int err;
-
     if(!sockname || (msec < 0)){
         errno = EINVAL;
         return -1;
     }
 
-    // creazione di un socket di dominio AF_UNIX,
-    // tipo di connessione SOCK_STREAM e
-    // di protocollo di default (0)
     if((fd_sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
         return -1;
 
@@ -126,14 +120,19 @@ int openConnection( const char* sockname, int msec,
         nanosleep(&time_sleep, &time_request);
 
         if(clock_gettime(CLOCK_REALTIME, &current_time) == -1){
-            close(fd_sock);
+            #ifdef PRINT_REASON
+                fprintf(stderr, "Information: open connection operation failed, reason: problem in calculating the current time (clock_gettime)\n");
+            #endif
             return -1;
         }
 
     }while(current_time.tv_sec < abstime.tv_sec ||
         current_time.tv_nsec < abstime.tv_nsec);
 
-    errno =  ETIMEDOUT;
+    #ifdef PRINT_REASON
+        fprintf(stderr, "Information: open connection operation failed, reason: connection test time passed\n");
+    #endif
+    errno =  ETIME;
     return -1;
 }
 
@@ -150,6 +149,9 @@ int openConnection( const char* sockname, int msec,
 */
 int closeConnection( const char* sockname ){
     if(!sockname){
+        #ifdef PRINT_REASON
+            fprintf(stderr, "Information: close connection operation failed, reason: wrong socket name\n");
+        #endif
         errno = EINVAL;
         return -1;
     }
@@ -157,6 +159,9 @@ int closeConnection( const char* sockname ){
     if(strncmp(serv_addr.sun_path, sockname, strlen(sockname)+1) ==  0){
         return close(fd_sock);
     }else{
+        #ifdef PRINT_REASON
+            fprintf(stderr, "Information: close connection operation failed, reason: wrong socket name\n");
+        #endif
         errno = EFAULT;
         return -1;
     }
@@ -182,7 +187,10 @@ int openFile( const char* pathname, int flags ){
     }
 
     if( !(flags == O_CREATE) && !(flags == O_LOCK) &&
-                                    !(flags == O_CREATE_AND_LOCK)){
+                                    !(flags == O_CREATE_LOCK)){
+        #ifdef PRINT_REASON
+            fprintf(stderr, "Information: open file operation failed, reason: invalid opening flag (%d)\n", flags);
+        #endif
         errno = EOPNOTSUPP;
         return -1;
     }
@@ -198,11 +206,15 @@ int openFile( const char* pathname, int flags ){
     }
 
     int *resp = NULL;
-    if( read_response_OF(fd_sock, resp) == -1 ){
+    char* reason = NULL;
+    if( read_response_OF(fd_sock, resp, reason) == -1 ){
         return -1;
     }
 
     if( *resp == FAILED_O){
+        #ifdef PRINT_REASON
+            fprintf(stderr, "Information: open file operation failed, reason: %s\n", reason);
+        #endif
         errno = EACCES;
         return -1;
     }
@@ -224,7 +236,8 @@ int readFile( const char* pathname, void** buf, size_t* size ){
     }
 
     if( read_response_RF(fd_sock, (char**) buf, size ) == -1){
-        buf = NULL;
+        if(*buf) free(*buf);
+        *buf = NULL;
         *size = 0;
         return -1;
     }
@@ -232,7 +245,9 @@ int readFile( const char* pathname, void** buf, size_t* size ){
     return 0;
 }
 
-int readNFile( int N, const char* dirname );
+int readNFile( int N, const char* dirname ){
+    return 0;
+}
 
 int writeFile( const char* pathname, const char* dirname ){
     if(!pathname){
@@ -241,26 +256,135 @@ int writeFile( const char* pathname, const char* dirname ){
     }
 
     char *str = NULL;
-    if(read_file(pathname, str, 0) <= 0){
+    size_t* sz_d = NULL;
+    if(read_file(pathname, str, sz_d, 0) <= 0){
 
     }
 
+    if(write_request_WF_ATF(fd_sock, _WF_O, pathname, str, *sz_d) == -1){
 
-    /*
-    if(write_WF(fd_sock) == -1){
+    }
 
-    }*/
+    int* result     = NULL;
+    char* reason    = NULL;
+    char* path_r    = NULL;
+    char* data_r    = NULL;
+    size_t* sz_dr   = NULL;
+    if(read_response_WF_ATF(fd_sock, result, reason, path_r, data_r, sz_dr) == -1){
+
+    }
+
+    if(*result == SUCCESS_O){
+
+    }
 
     return 0;
 }
 
-int appendToFile( const char* pathname, void* buf, size_t size,
-                                                const char* dirname );
+int appendToFile( const char* pathname, void* buf, size_t size, const char* dirname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
 
-int lockFile( const char* pathname );
+    char *str = NULL;
+    size_t* sz_d = NULL;
+    if(read_file(pathname, str, sz_d, 0) <= 0){
 
-int unlockFile( const char* pathname );
+    }
 
-int closeFile( const char* pathname );
+    if(write_request_WF_ATF(fd_sock, _WF_O, pathname, str, *sz_d) == -1){
 
-int removeFile( const char* pathname );
+    }
+
+    int* result     = NULL;
+    char* reason    = NULL;
+    char* path_r    = NULL;
+    char* data_r    = NULL;
+    size_t* sz_dr   = NULL;
+    if(read_response_WF_ATF(fd_sock, result, reason, path_r, data_r, sz_dr) == -1){
+
+    }
+
+    if(*result == SUCCESS_O){
+
+    }
+
+    return 0;
+}
+
+int lockFile( const char* pathname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+
+    }
+
+    int* result = NULL;
+    char* reason = NULL;
+    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+
+    }
+
+    return 0;
+}
+
+int unlockFile( const char* pathname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+
+    }
+
+    int* result = NULL;
+    char* reason = NULL;
+    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+
+    }
+
+    return 0;
+}
+
+int closeFile( const char* pathname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+
+    }
+
+    int* result = NULL;
+    char* reason = NULL;
+    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+
+    }
+
+    return 0;
+}
+
+int removeFile( const char* pathname ){
+    if(!pathname){
+        errno = EINVAL;
+        return -1;
+    }
+
+    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+
+    }
+
+    int* result = NULL;
+    char* reason = NULL;
+    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+
+    }
+
+    return 0;
+}
