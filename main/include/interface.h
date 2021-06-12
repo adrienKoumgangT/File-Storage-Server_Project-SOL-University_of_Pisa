@@ -35,6 +35,10 @@
 #ifndef INTERFACE_FOR_SERVER
 #define INTERFACE_FOR_SERVER
 
+#define O_CREATE        (1)
+#define O_LOCK          (2)
+#define O_CREATE_LOCK   (3)
+
 int openConnection( const char* sockname, int msec, const struct timespec abstime );
 
 int closeConnection( const char* sockname );
