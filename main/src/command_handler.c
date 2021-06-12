@@ -51,8 +51,6 @@
 #include "command_handler.h"
 #include "utils.h"
 
-#define STR_LEN 2048
-
 /*
 #define number_of_cmds 11
 
@@ -340,7 +338,7 @@ int initCmds( int argc, char** argv ){
                                 int len = strlen(str_args) + 1;
                                 new_a[0]= (char *) malloc(len * sizeof(char));
                                 strncpy(new_a[0], str_args, len);
-                                addCmd(cmd_w, -1, new_a, 1);
+                                addCmd(cmd_w, 0, new_a, 1);
                             }else{
                                 char** new_a = (char **) malloc(2 * sizeof(char *));
                                 parse_arguments(str_args, new_a, 2, ",");
