@@ -51,8 +51,9 @@
 */
  typedef struct _file_t { // TODO: da completare sugli altri file
  	char *key;
+    size_t size_key;
  	char *data;
-    size_t size;
+    size_t size_data;
 //    time_t t;
     int log;
  	struct _file_t *next;
