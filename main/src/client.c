@@ -52,6 +52,7 @@
 
 #include "interface.h"
 #include "command_handler.h"
+#include "read_write_file.h"
 #include "utils.h"
 
 
@@ -62,16 +63,13 @@
 #define N_FLAGS 13
 #define LEN_BUF_ARGS 27
 
-// definition of the possible dimensions for the strings
-#define STR_LEN 1024
-#define STR_SIZE (STR_LEN * sizeof(char))
-#define MAX_FILE_NAME 2048
-
 // define for connection to server
 #define time_to_retry (5 * 1000)
 #define time_to_connect_sec 5
 #define time_to_connect_nsec (time_to_connect_sec * 1000000)
 
+char PATHNAME[2040];
+int LEN_PATHNAME = 0;
 
 typedef struct _arg_list{
     char* arg;
@@ -89,8 +87,8 @@ int print_operation = 0;
 long timeToPrint = 1;
 long timeToPause = 0;
 
-char* dirname_D[STR_LEN];
-char* dirname_d[STR_LEN];
+char dirname_D[STR_LEN];
+char dirname_d[STR_LEN];
 
 struct timespec time_dodo;
 
@@ -153,9 +151,9 @@ int connect_to_server( char* sockname ){
     abstime.tv_nsec += time_to_connect_nsec;
 
     if( openConnection(socket_name, time_to_retry, abstime) == -1){
+        if(errno == EINVAL) fprintf(stderr, "ERROR: Failed to connect. The connection address given is incorrect (%s).\n", socket_name);
+        if(errno == ETIME) fprintf(stderr, "ERROR: Failed to connect. the server took too long to answer the connection request.\n");
         if(socket_name) free(socket_name);
-        if(errno == EINVAL)
-            isConnect = 0;
         return -1;
     }
 
@@ -164,9 +162,23 @@ int connect_to_server( char* sockname ){
 
 /****************************** utility functions *************************/
 
+/*
+char* getAbsolutePath( char* path ){
+    if(!path) return NULL;
+    size_t len = strlen(path);
+    if(len <= 0) return NULL;
 
+    // if the path is already absolute, I return it
+    if(path[0] == '/') return path;
 
-/******** management functions of each command passed by the client *********/
+    if(len + LEN_PATHNAME + 1 > MAX_FILE_NAME) return NULL;
+    char* new_path = (char *) malloc((len + LEN_PATHNAME + 1) * sizeof(char));
+    memset(new_path, '\0', len+LEN_PATHNAME+1);
+    strncpy(new_path, PATHNAME, LEN_PATHNAME+1);
+    strncat(new_path, path, len+1);
+    return new_path;
+}
+*/
 
 int isdot(const char dir[]) {
   int l = strlen(dir);
@@ -175,8 +187,8 @@ int isdot(const char dir[]) {
   return 0;
 }
 
-arg_list* listOfFile( const char* nomedir, arg_list** list, int* n ){
-    if(*n == 0) return NULL;
+arg_list* listOfFile( const char* nomedir, arg_list** list, long* n ){
+    if(!n || *n == -1) return NULL;
 
     // controllo se il parametro sia una directory
     struct stat statbuf;
@@ -234,94 +246,292 @@ arg_list* listOfFile( const char* nomedir, arg_list** list, int* n ){
     }
 }
 
-// -w dirname[,n=0] : invia al server i file nella cartella ‘dirname’,
-// ovvero effettua una richiesta di scrittura al server per i file
+/******** management functions of each command passed by the client *********/
+
+
+/**
+* "-w" command management function
+* takes care of sending a certain number of files ("n" if n> 0 or all)
+*   contained in the "arg" folder
+*
+* @params arg : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_w( char* arg, long n ){
-    if(!args) return -1;
+    if(!arg) return -1;
+
+    char* mdir = getPath(arg, PATHNAME, LEN_PATHNAME);
+    if(mdir == NULL){
+        return -1;
+    }
+
+    arg_list* flist = NULL;
+    if(listOfFile(mdir, &flist, &n) == NULL) return -1;
+    arg_list *corr = flist;
+    arg_list *prev = NULL;
+    while(corr != NULL){
+        if(openFile(corr->arg, O_CREATE_LOCK) == -1){
+
+        }else if(writeFile(corr->arg, dirname_D) == -1){
+
+        }
+        prev = corr;
+        corr = corr->next;
+        if(prev->arg) free(prev->arg);
+        free(prev);
+    }
+
+    if(strcmp(mdir, arg) != 0) free(mdir);
 
     return 0;
 }
 
-// -W file1[,file2] lista dei file da scrivere sul server
+/**
+* "-W" command management function
+* writes "n" files (args) to the server
+*
+* @params args : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_W( char** args, long n ){
-    if(!args) return -1;
+    if(!args || n<=0) return -1;
+
+    if(print_operation) fprintf(stdout, "[%ld] writing '%ld' files to the server\n", timeToPrint++, n);
+    for(int i=0; i<n; i++){
+        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
+        if(path == NULL){
+            fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
+            continue;
+        }
+        if(openFile(path, O_CREATE_LOCK) == -1){
+
+        }else if(writeFile(path, dirname_D) == -1){
+
+        }
+
+        if(strcmp(path, args[i]) != 0) free(path);
+    }
 
     return 0;
 }
 
+/**
+* "-D" command management function
+* change the folder where the files ejected from the server are stored
+*
+* @params arg : argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_D( char* arg ){
     if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-w' and '-W' commands : %s\n", timeToPrint++ ,arg);
+    if((LEN_PATHNAME + strlen(arg) +1) > 2048){
+        fprintf(stderr, "invalid path name for folder '%s': too long\n", arg);
+        return -1;
+    }
     memset(dirname_D, '\0', STR_LEN);
-    strncpy(dirname_D, arg, STR_LEN);
+    if(arg[0] != '/'){
+        if(strncpy(dirname_D, PATHNAME, LEN_PATHNAME+1) == NULL) return -1;
+        if(strncpy(dirname_D, "/", 2) == NULL) return -1;
+        if(strcat(dirname_D, arg) == NULL) return -1;
+    }else{
+        if(strncpy(dirname_D, arg, STR_LEN) == NULL) return -1;
+    }
     return 0;
 }
 
+/**
+* "-r" command management function
+* it reads "n" files (args) present on the server
+*
+* @params args : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_r( char** args, long n ){
+    if(!args || n<=0) return -1;
+
+    if(print_operation) fprintf(stdout, "[%ld] reading '%ld' files to the server\n", timeToPrint++, n);
+    char* buf_read = NULL;
+
+    for(int i=0; i<n; i++){
+        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
+        if(path == NULL){
+            fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
+            continue;
+        }
+
+        size_t sz;
+        if(openFile(path, O_CREATE_LOCK) == -1){
+
+        }else if(readFile(path, (void *) buf_read, &sz) == -1){
+
+        }else{
+            char* p = NULL;
+            if(write_file(p, buf_read, sz) == -1){
+
+            }
+        }
+        fprintf(stdout, "contents of file '%s' read on server:%s\n", path, buf_read);
+        if(buf_read) free(buf_read);
+        if(strcmp(path, args[i]) != 0) free(path);
+    }
+
     return 0;
 }
 
+/**
+* "-R" command management function
+* it reads any "arg" files present on the server
+*
+* @params arg : argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_R( long arg ){
     if(print_operation){
-        if(n<=0) fprintf(stdout, "[%ld] reading any n files from the server\n", timeToPrint++);
+        if(arg<=0) fprintf(stdout, "[%ld] reading any n files from the server\n", timeToPrint++);
         else fprintf(stdout, "[%ld] reading any '%ld' files from the server\n", timeToPrint++, arg);
     }
     if(readNFile((int) arg, dirname_d) == -1){
-        if(n<=0) fprintf(stdout, "[%ld] failed to read any n files from the server\n", timeToPrint++);
+        if(arg<=0) fprintf(stdout, "[%ld] failed to read any n files from the server\n", timeToPrint++);
         else fprintf(stdout, "[%ld] failed to read any '%ld' files from the server\n", timeToPrint++, arg);
         return -1;
     }
     if(print_operation){
-        if(n<=0) fprintf(stdout, "[%ld] successful reading any n files from the server\n", timeToPrint++);
+        if(arg<=0) fprintf(stdout, "[%ld] successful reading any n files from the server\n", timeToPrint++);
         else fprintf(stdout, "[%ld] successful reading any '%ld' files from the server\n", timeToPrint++, arg);
     }
     return 0;
 }
 
+/**
+* "-d" command management function
+* change the folder where the files ejected from the server are stored
+*
+* @params arg : argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_d( char* arg ){
     if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-r' and '-R' commands : %s\n", timeToPrint++ ,arg);
+    if((LEN_PATHNAME + strlen(arg) +1) > 2048){
+        fprintf(stderr, "invalid path name for folder '%s': too long\n", arg);
+        return -1;
+    }
     memset(dirname_d, '\0', STR_LEN);
-    strncpy(dirname_d, arg, STR_LEN);
+    if(arg[0] != '/'){
+        if(strncpy(dirname_d, PATHNAME, LEN_PATHNAME+1) == NULL) return -1;
+        if(strncpy(dirname_d, "/", 2) == NULL) return -1;
+        if(strcat(dirname_d, arg) == NULL) return -1;
+    }else{
+        if(strncpy(dirname_d, arg, STR_LEN) == NULL) return -1;
+    }
     return 0;
 }
 
-int do_cmd_tt( long arg ){
-    if(print_operation) fprintf(stdout, "[%ld] change of waiting time between 2 requests : %d milliseconds\n", timeToPrint, arg);
+/**
+* "-t" command management function
+* change the waiting time between 2 requests made to the server
+*
+* @params arg : argument passed to the command
+*/
+void do_cmd_tt( long arg ){
+    if(print_operation) fprintf(stdout, "[%ld] change of waiting time between 2 requests : %ld milliseconds\n", timeToPrint, arg);
     timeToPause = arg;
-    return 0;
 }
 
+/**
+* "-l" command management function
+* requests the server to acquire logs on "n" files (args)
+*
+* @params arg : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_l( char** args, long n ){
     for(int i=0; i<n; i++){
-        if(print_operation) fprintf(stdout, "[%ld] acquisition of the mutual exclusion on the file '%s'\n", timeToPrint++, args[i]);
-        if(lockFile(args[i]) == -1){
-            if(print_operation) fprintf(stdout, "[%ld] acquisition of mutual exclusion on file '%s' failed\n", timeToPrint++, args[i]);
-        }else{
-            if(print_operation) fprintf(stdout, "[%ld] successful acquisition of mutual exclusion on file '%s'\n", timeToPrint++, args[i]);
+        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
+        if(path == NULL){
+            fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
+            continue;
         }
+        if(print_operation) fprintf(stdout, "[%ld] acquisition of the mutual exclusion on the file '%s'\n", timeToPrint++, path);
+        if(lockFile(path) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] acquisition of mutual exclusion on file '%s' failed\n", timeToPrint++, path);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful acquisition of mutual exclusion on file '%s'\n", timeToPrint++, path);
+        }
+        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
 
+/**
+* "-u" command management function
+* prompts the server to release log capture on "n" files (args)
+*
+* @params arg : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_u( char** args, long n ){
     for(int i=0; i<n; i++){
-        if(print_operation) fprintf(stdout, "[%ld] releasing of the mutual exclusion on the file '%s'\n", timeToPrint++, args[i]);
-        if(unlockFile(args[i]) == -1){
-            if(print_operation) fprintf(stdout, "[%ld] releasing of mutual exclusion on file '%s' failed\n", timeToPrint++, args[i]);
-        }else{
-            if(print_operation) fprintf(stdout, "[%ld] successful releasing of mutual exclusion on file '%s'\n", timeToPrint++, args[i]);
+        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
+        if(path == NULL){
+            fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
+            continue;
         }
+        if(print_operation) fprintf(stdout, "[%ld] releasing of the mutual exclusion on the file '%s'\n", timeToPrint++, path);
+        if(unlockFile(args[i]) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] releasing of mutual exclusion on file '%s' failed\n", timeToPrint++, path);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful releasing of mutual exclusion on file '%s'\n", timeToPrint++, path);
+        }
+        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
 
+/**
+* "-c" command management function
+* requests the server to close "n" files (args) opened by the client
+*
+* @params arg : argument passed to the command
+* @params n : second argument passed to the command
+*
+* @returns : 0 if successful
+*           -1 in case of failure
+*/
 int do_cmd_c( char** args, long n ){
     for(int i=0; i<n; i++){
-        if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server\n", timeToPrint++, args[i]);
-        if(removeFile(args[i]) == -1){
-            if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server failed\n", timeToPrint++, args[i]);
-        }else{
-            if(print_operation) fprintf(stdout, "[%ld] successful removing the '%s' file on the server\n", timeToPrint++, args[i]);
+        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
+        if(path == NULL){
+            fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
+            continue;
         }
+        if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server\n", timeToPrint++, path);
+        if(removeFile(args[i]) == -1){
+            if(print_operation) fprintf(stdout, "[%ld] removing the '%s' file on the server failed\n", timeToPrint++, path);
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] successful removing the '%s' file on the server\n", timeToPrint++, path);
+        }
+        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
@@ -352,8 +562,45 @@ int main(int argc, char** argv){
         exit(EXIT_FAILURE);
     }
 
+    int err;
+
+    // I read the path where you run the executable from the root
+    int cfp[2];
+
+    SYSCALL_EXIT_EQ("pipe", err, pipe(cfp), -1, "");
+    SYSCALL_EXIT_EQ("fork", err, fork(), -1, "");
+
+    if(err == 0){
+        close(cfp[0]);
+        SYSCALL_EXIT_EQ("dup2", err, dup2(cfp[1], 1), -1, "");
+        close(cfp[1]);
+        execlp("pwd", "pwd", NULL);
+        perror("eseguendo pwd");
+        exit(errno);
+    }
+
+    close(cfp[1]);
+    char p[2040];
+    memset(p, '\0', 2040);
+    SYSCALL_EXIT_EQ("read", err, read(cfp[0], p, 2040), -1, "read");
+
+    p[strcspn(p, "\n")] = '\0';
+    close(cfp[0]);
+
+    memset(PATHNAME, '\0', 2040);
+    if(p[2] != '/'){ // in case we are not in the root folder
+        strncpy(PATHNAME, p, 2040);
+        strncat(PATHNAME, "/", 2);
+    }else{ // in case we are in the root folder
+        strncpy(PATHNAME, p, 2040);
+    }
+
+    LEN_PATHNAME = strlen(PATHNAME);
+
     int i=0;
 
+    // gives the "command handler" arguments passed on the command line
+    // it checks the correctness of the commands
     if(initCmds(argc, argv) == EXIT_FAILURE){
         char** s = getErrors();
         for(i=0; i<number_of_errors; i++){
@@ -363,16 +610,19 @@ int main(int argc, char** argv){
         return EXIT_FAILURE;
     }
 
+    // verify that the user passed the "-h" command or not
     if(hasHCmd()){
         print_help();
         goto endClient;
     }
 
+    // verify that the user passed the "-p" command or not
     if(hasPCmd()){
         print_operation = 1;
         fprintf(stdout, "INFO: print operations enable\n\n");
     }
 
+    // configuration and connection to the server at the given address
     char* sockname = getF();
     if(print_operation) fprintf(stdout, "[%ld] Attempt to connect to the server at: '%s'.\n", timeToPrint++, sockname);
     if(connect_to_server(sockname) == -1){
@@ -383,11 +633,20 @@ int main(int argc, char** argv){
 
     char* mdir = getFirstDdir();
     if(mdir){
+        if((LEN_PATHNAME + strlen(mdir) +1) > 2048){
+            fprintf(stderr, "invalid path name for folder '%s': too long\n", mdir);
+            goto endClient;
+        }
         memset(dirname_D, '\0', STR_LEN);
-        strncpy(dirname_D, mdir, STR_LEN);
+        strncpy(dirname_D, p, 2040);
+        strncat(dirname_D, mdir, STR_LEN);
     }
     mdir = getFirstddir();
     if(mdir){
+        if((LEN_PATHNAME + strlen(mdir) +1) > 2048){
+            fprintf(stderr, "invalid path name for folder '%s': too long\n", mdir);
+            goto endClient;
+        }
         memset(dirname_d, '\0', STR_LEN);
         strncpy(dirname_d, mdir, STR_LEN);
     }
@@ -395,6 +654,7 @@ int main(int argc, char** argv){
 
     cmd* mycmd = NULL;
 
+    // sequential processing of each command
     while((mycmd = nextCmd()) != NULL){
         switch(mycmd->command){
             case cmd_w:{
@@ -411,7 +671,7 @@ int main(int argc, char** argv){
             }
             case cmd_D:{
                 if(do_cmd_D(mycmd->list_of_arguments[0]) == -1){
-
+                    goto endClient;
                 }
                 break;
             }
@@ -429,14 +689,12 @@ int main(int argc, char** argv){
             }
             case cmd_d:{
                 if(do_cmd_d(mycmd->list_of_arguments[0]) == -1){
-
+                    goto endClient;
                 }
                 break;
             }
             case cmd_tt:{
-                if(do_cmd_tt(mycmd->intArg) == -1){
-
-                }
+                do_cmd_tt(mycmd->intArg);
             }
             case cmd_l:{
                 if(do_cmd_l(mycmd->list_of_arguments, mycmd->countArgs) == -1){
