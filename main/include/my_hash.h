@@ -45,16 +45,6 @@
 #include "my_file.h"
 
  // definition of element to be inserted in the hash table
- /*
- typedef struct _file_t {
- 	char *key;
- 	char *data;
-    size_t size;
-//    time_t t;
-    int log;
- 	struct _file_t *next;
- } file_t;
- */
  typedef struct _file_t data_hash_t;
 
  /* the structure of hash table */
