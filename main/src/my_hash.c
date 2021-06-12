@@ -41,16 +41,6 @@
  #include "my_file.h"
 
 
-/*
- typedef struct _hash_t {
- 	int size;
- 	int number_of_item;
- 	data_hash_t **table;
- 	unsigned int (*hash_function)(char *);
- 	int (*hash_key_compare)(char *, char *);
- } hash_t;
-*/
-
  /**
  * Create a new hash table
  *
@@ -149,8 +139,9 @@ fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
         return NULL;
 
     new_item->key = key;
+    new_item->size_key = sizeof(key);
     new_item->data = data;
-    new_item->size = sizeof(data);
+    new_item->size_data = sizeof(data);
     new_item->log = -1;
     new_item->next = ht->table[key_hash];
 
@@ -198,8 +189,9 @@ fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
 
     data_hash_t *new_item = (data_hash_t *) malloc(sizeof(data_hash_t));
     new_item->key = key;
+    new_item->size_key = sizeof(key);
     new_item->data = data;
-    new_item->size = sizeof(data);
+    new_item->size_data = sizeof(data);
     new_item->log = -1;
     new_item->next = ht->table[key_hash];
 
@@ -280,8 +272,7 @@ fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
             }
 
             if(curr->key) free(curr->key);
-            if(curr->data)
-                free(curr->data);
+            if(curr->data) free(curr->data);
             free(curr);
             ht->number_of_item--;
             return 0;
