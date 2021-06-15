@@ -116,6 +116,19 @@ static inline char* setNameFile( const char* dirname, const char* filepath ){
     return pathfile;
 }
 
+static inline char* getNameFile( char* pathname ){
+    if(!pathname) return NULL;
+
+    char* namefile = NULL;
+    char* tmp = NULL;
+    char* token = strtok_r(pathname, "/", &tmp);
+    while(token){
+        namefile = token;
+        token = strtok_r(NULL, "/", &tmp);
+    }
+    return namefile;
+}
+
 #endif /* UTILS_FUNCTIONS */
 
 
