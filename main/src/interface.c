@@ -64,6 +64,7 @@
 #include "interface.h"
 #include "communication.h"
 #include "read_write_file.h"
+#include "utils.h"
 
 
 static int fd_sock;
@@ -235,11 +236,31 @@ int readFile( const char* pathname, void** buf, size_t* size ){
         return -1;
     }
 
-    if( read_response_RF(fd_sock, (char**) buf, size ) == -1){
+    int resp;
+    char* reason = NULL;
+    if( read_response_RF(fd_sock, &resp, (char**) buf, size, reason) == -1){
         if(*buf) free(*buf);
         *buf = NULL;
         *size = 0;
         return -1;
+    }
+
+    switch(resp){
+        case FAILED_O:{
+            #ifdef PRINT_REASON
+                if(reason != NULL){
+                    fprintf(stdout, "failure to read file '%s': %s\n", pathname, reason);
+                }
+            #endif
+            // errno da settare qua
+            return -1;
+        }
+        case SUCCESS_O:{
+            break;
+        }
+        default:{
+            break;
+        }
     }
 
     return 0;
@@ -267,15 +288,39 @@ int writeFile( const char* pathname, const char* dirname ){
 
     int* result     = NULL;
     char* reason    = NULL;
-    char* path_r    = NULL;
-    char* data_r    = NULL;
+    char** path_r    = NULL;
+    char** data_r    = NULL;
+    size_t* sz_pr   = NULL;
     size_t* sz_dr   = NULL;
-    if(read_response_WF_ATF(fd_sock, result, reason, path_r, data_r, sz_dr) == -1){
-
-    }
-
-    if(*result == SUCCESS_O){
-
+    int N = 0;
+    if(read_response_WF_ATF(fd_sock, result, reason, &N, path_r, sz_pr, data_r, sz_dr) == -1){
+        switch(*result){
+            case FAILED_O:{
+                #ifdef PRINT_REASON
+                    if(reason != NULL){
+                        fprintf(stdout, "failure to write file '%s': %s\n", pathname, reason);
+                    }
+                #endif
+                // errno da settare qua
+                return -1;
+            }
+            case SUCCESS_O:{
+                if(N > 0){
+                    for(int i=0; i<N; i++){
+                        char* p = getNameFile(path_r[i]);
+                        char* f = (char *) malloc(STR_LEN * sizeof(char));
+                        memset(f, '\0', STR_LEN);
+                        strncpy(f, dirname, STR_LEN-1);
+                        strncat(f, "/", 2);
+                        strncat(f, p, STR_LEN);
+                        write_file(f, data_r[i], sz_dr[i]);
+                    }
+                }
+            }
+            default:{
+                break;
+            }
+        }
     }
 
     return 0;
@@ -299,10 +344,12 @@ int appendToFile( const char* pathname, void* buf, size_t size, const char* dirn
 
     int* result     = NULL;
     char* reason    = NULL;
-    char* path_r    = NULL;
-    char* data_r    = NULL;
+    char** path_r    = NULL;
+    char** data_r    = NULL;
+    size_t* sz_pr   = NULL;
     size_t* sz_dr   = NULL;
-    if(read_response_WF_ATF(fd_sock, result, reason, path_r, data_r, sz_dr) == -1){
+    int N = 0;
+    if(read_response_WF_ATF(fd_sock, result, reason, &N, path_r, sz_pr, data_r, sz_dr) == -1){
 
     }
 
