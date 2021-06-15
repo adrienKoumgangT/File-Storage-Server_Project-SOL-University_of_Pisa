@@ -57,26 +57,21 @@
  } hash_t;
 
  /* Create a new hash table */
- hash_t* hash_create( const int, unsigned int (*hash_function)(char *),
+hash_t* hash_create( const int, unsigned int (*hash_function)(char *),
                         int (*hash_key_compare)(char *, char *) );
 
+data_hash_t* hash_find( const hash_t*, char* );
 
- data_hash_t* hash_find( const hash_t*, char* );
+data_hash_t* hash_insert( hash_t*, char*, char*, int );
 
+data_hash_t* hash_update_insert( hash_t*, char*, size_t, char*, size_t );
 
- data_hash_t* hash_insert( hash_t*, char*, char* );
+data_hash_t* hash_update_cat( const hash_t*, char*, size_t, char*, size_t );
 
+data_hash_t* hash_remove( hash_t*, char* );
 
- data_hash_t* hash_update_insert( hash_t*, char*, char* );
+int hash_delete( hash_t*, char* );
 
-
- data_hash_t* hash_remove( hash_t*, char* );
-
-
- int hash_delete( hash_t*, char* );
-
-
- int hash_destroy( hash_t* );
-
+int hash_destroy( hash_t* );
 
  #endif
