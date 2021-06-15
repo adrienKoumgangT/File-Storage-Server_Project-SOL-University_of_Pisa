@@ -41,6 +41,8 @@
  #if !defined(FILE_T)
  #define FILE_T
 
+#include <pthread.h>
+
 /**
 * format of a generic file
 *
@@ -50,13 +52,15 @@
 * next : pointer to a possible file
 */
  typedef struct _file_t { // TODO: da completare sugli altri file
- 	char *key;
-    size_t size_key;
- 	char *data;
-    size_t size_data;
-//    time_t t;
-    int log;
- 	struct _file_t *next;
+ 	char*                   key;
+    size_t                  size_key;
+ 	char*                   data;
+    size_t                  size_data;
+    fd_set                  set;
+    int                     log;
+    pthread_mutex_t         flock;
+    pthread_cond_t          fcond;
+ 	struct _file_t*         next;
  } file_t;
 
 
@@ -67,7 +71,36 @@
  int hash_key_compare_for_file_t(char*, char*);
 
  // print file
- void print_file(file_t *);
+ void file_print(file_t *);
 
+// free file
+void file_free( file_t *);
 
- #endif
+// take lock
+int file_take_lock( file_t*, int  );
+
+// leave lock
+int file_leave_lock( file_t*, int );
+
+//
+int file_has_lock( file_t*, int );
+
+// read the contents of a file
+int file_read_content( file_t *, char*, size_t* );
+
+// write the contents of a file
+int file_write_content( file_t*, char*, size_t );
+
+// append to the contents of a file
+int file_append_content( file_t*, char*, size_t );
+
+//
+void file_add_fd( file_t*, int );
+
+//
+void file_remove_fd( file_t*, int );
+
+//
+int file_has_fd( file_t*, int );
+
+#endif
