@@ -33,20 +33,8 @@
 */
 
 
-#ifndef COMUNICATION_H
-#define COMUNICATION_H
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <sys/un.h>
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
-#include <string.h>
-#include <time.h>
+#ifndef COMMUNICATION_H
+#define COMMUNICATION_H
 
 #include "my_file.h"
 
@@ -72,6 +60,8 @@
 #define _CF_O       (8)
 #define _RFI_O      (9)
 
+// how to open files
+#define O_NORMAL            (0)
 #define O_CREATE            (1)
 #define O_LOCK              (2)
 #define O_CREATE_LOCK       (3)
@@ -118,12 +108,12 @@ int write_request_LF_UF_CF_RFI( const int, const int, const char* );
 int read_response_OF( const int, int*, char* );
 
 /***/
-int read_response_RF( const int, char**, size_t* );
+int read_response_RF( const int, int*, char**, size_t*, char* );
 
 /***/
 int read_response_RNF( const int, int*, char**, size_t*, char**, size_t* );
 
-int read_response_WF_ATF( const int, int*, char*, char*, char*, size_t* );
+int read_response_WF_ATF( const int, int*, char*, int*, char**, size_t*, char**, size_t* );
 
 int read_response_LF_UF_CF_RFI( const int, int*, char* );
 
@@ -136,13 +126,13 @@ int read_response_LF_UF_CF_RFI( const int, int*, char* );
 /**
 * receives an open file request from the client
 */
-int read_request_OF( const int, char* );
+int read_request_OF( const int, char*, int* );
 
 
 /**
 *
 */
-int read_request_RF( const int, char* );
+int read_request_RF( const int, char*, size_t* );
 
 /**
 *
@@ -153,10 +143,7 @@ int read_request_RNF( const int, int* );
 * function that allows a client to read the data requested
 * to write a file in the database
 */
-int read_request_WF( const int, file_t* );
-
-
-int read_request_ATF( const int, char*, char*, size_t* );
+int read_request_WF_ATF( const int, char*, size_t*, char*, size_t* );
 
 int read_request_LF_UF_CF_RFI( const int, char* );
 
@@ -167,7 +154,7 @@ int read_request_LF_UF_CF_RFI( const int, char* );
 int write_response_OF( const int, int, char* );
 
 /***/
-int write_response_RF(const int, char*, size_t );
+int write_response_RF(const int, const int, char*, size_t, char* );
 
 /***/
 int write_response_RNF( const int, const int, char**, size_t*, char**, size_t* );
@@ -175,7 +162,7 @@ int write_response_RNF( const int, const int, char**, size_t*, char**, size_t* )
 /**
 *
 */
-int write_response_WF_ATF( const int, const int, const char*, const char*, const char*, const size_t );
+int write_response_WF_ATF(  const int, const int, const char*, int, char**, size_t*, char**, size_t* );
 
 /***/
 int write_response_LF_UF_CF_RFI( const int, const int, const char* );

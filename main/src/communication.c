@@ -293,9 +293,9 @@ int write_request_WF_ATF( const int fd, const int operation, const char* pathnam
         errno = EFAULT;
         return -1;
     }
-    if((write_function(fd, pathname, sz_p, data, size)) == -1)
+    if((write_function(fd, pathname, sz_p, data, size)) == -1){
         return -1;
-
+    }
 
     return 0;
 }
@@ -347,19 +347,25 @@ int read_response_OF( const int fd, int* response, char* reason ){
 }
 
 /***/
-int read_response_RF( const int fd, char** buf, size_t* size ){
+int read_response_RF( const int fd, int* resp, char** buf, size_t* size, char* reason ){
     if(fd <= 0){
         errno = EFAULT;
         return -1;
     }
 
-    if((read(fd, size, sizeof(size_t))) == -1){
+    if((read(fd, resp, sizeof(int))) == -1){
         return -1;
     }
-
-    *buf = (char *) malloc(*size * sizeof(char));
-    if((read(fd, *buf, *size)) == -1){
-        return -1;
+    if(*resp == SUCCESS_O){
+        reason = NULL;
+        if((read_data(fd, *buf, size)) == -1){
+            return -1;
+        }
+    }else{
+        size_t sz_r = 0;
+        if((read_data(fd, reason, &sz_r)) == -1){
+            return -1;
+        }
     }
 
     return 0;
@@ -393,8 +399,8 @@ int read_response_RNF( const int fd, int* N, char** pathname, size_t* size_p,
     return 0;
 }
 
-int read_response_WF_ATF( const int fd, int* result, char* reason, char* pathname,
-                                                char* data, size_t* size ){
+int read_response_WF_ATF( const int fd, int* result, char* reason, int* N,
+                                char** pathname, size_t* size_pathname, char** data, size_t* size_data ){
     if(fd <= 0){
         errno = EFAULT;
         return -1;
@@ -405,19 +411,29 @@ int read_response_WF_ATF( const int fd, int* result, char* reason, char* pathnam
     }
 
     if(*result == SUCCESS_O){
-        int expelled;
-        if((read(fd, &expelled, sizeof(int))) == -1){
+        if((read(fd, N, sizeof(int))) == -1){
             return -1;
         }
 
-        if(expelled == 1){
-            size_t* sz_p = NULL;
-            if((read_function(fd, pathname, sz_p, data, size)) == -1)
-                return -1;
+        if(*N > 0){
+            if(pathname)        free(pathname);
+            pathname            = (char **) malloc(*N * sizeof(char*));
+            if(size_pathname)   free(size_pathname);
+            size_pathname       = (size_t *) malloc(*N * sizeof(size_t));
+            if(data)            free(data);
+            data                = (char **) malloc(*N * sizeof(char*));
+            if(size_data)       free(size_data);
+            size_data           = (size_t *) malloc(*N * sizeof(size_t));
+            if(!pathname || !size_pathname || !data || !size_data) return -1;
+            for(int i=0; i<*N; i++){
+                if((read_function(fd, pathname[i], &size_pathname[i], data[i], &size_data[i])) == -1)
+                    return -1;
+            }
         }else{
-            pathname    = NULL;
-            data        = NULL;
-            size        = NULL;
+            pathname        = NULL;
+            size_pathname   = NULL;
+            data            = NULL;
+            size_data       = NULL;
         }
     }else{
         size_t* sz_r = NULL;
@@ -464,7 +480,7 @@ int read_response_LF_UF_CF_RFI( const int fd, int* result, char* reason ){
 *
 * @returns :
 */
-int read_request_OF( const int fd, char* pathname ){
+int read_request_OF( const int fd, char* pathname, int* flags ){
 
     if(fd <= 0){
         errno = EFAULT;
@@ -472,21 +488,16 @@ int read_request_OF( const int fd, char* pathname ){
     }
 
     int err;
-    int flags;
 
     // I read the flag associated with the operation to be done
-    if((err = read(fd, &flags, sizeof(int))) == -1){
+    if((err = read(fd, flags, sizeof(int))) == -1){
         return -1;
     }
 
     size_t sz_p;
-    // I read the size of the pathname
-    if((err = read(fd, &sz_p, sizeof(size_t))) == -1){
-        return -1;
-    }
 
     // I read the pathname of file
-    if((err = read(fd, pathname, sz_p)) == -1){
+    if((err = read_data(fd, pathname, &sz_p)) == -1){
         return -1;
     }
 
@@ -505,7 +516,7 @@ int read_request_OF( const int fd, char* pathname ){
 * @returns : -1 in case of error with errno set
 *             0 if successful
 */
-int read_request_RF( const int fd, char* pathname ){
+int read_request_RF( const int fd, char* pathname, size_t* sz_p ){
 
     if(fd <= 0){
         errno = EFAULT;
@@ -514,16 +525,15 @@ int read_request_RF( const int fd, char* pathname ){
 
     if(pathname) free(pathname);
 
-    size_t sz_p = 0;
     // I read the pathname size of the file
-    if((read(fd, &sz_p, sizeof(sz_p))) == -1){
+    if(read(fd, sz_p, sizeof(size_t)) == -1){
         if(errno != EINTR)
         return -1;
     }
 
     // I read the key of the file
-    pathname = (char *) malloc(sz_p);
-    if((read(fd, pathname, sz_p)) == -1){
+    pathname = (char *) malloc(*sz_p);
+    if((read(fd, pathname, *sz_p)) == -1){
         if(errno != EINTR)
             return -1;
     }
@@ -559,37 +569,21 @@ int read_request_RNF( const int fd, int* N ){
 * @returns : -1 in case of error with errno set
 *               size of data if successful
 */
-int read_request_WF( const int fd, file_t* file ){
+int read_request_WF_ATF( const int fd, char* pathname, size_t* sz_p, char* data, size_t* sz_d ){
 
     if(fd <= 0){
         errno = EFAULT;
         return -1;
     }
 
-    if(file) free(file);
-    file = (file_t *) malloc(sizeof(file_t));
-    memset(file, '0', sizeof(file_t));
-
-    if((read_function(fd, file->key, &(file->size_key), file->data, &(file->size_data))) == -1)
+    if((read_function(fd, pathname, sz_p, data, sz_d)) == -1)
         return -1;
 
     return 0;
 }
 
-
-int read_request_ATF( const int fd, char* pathname, char* data, size_t* size ){
-    if(fd <= 0){
-        errno = EFAULT;
-        return -1;
-    }
-
-    size_t* sz_p = NULL;
-    if((read_function(fd, pathname, sz_p, data, size)) == -1)
-        return -1;
-
-    return 0;
-}
-
+/**
+*/
 int read_request_LF_UF_CF_RFI( const int fd, char* pathname ){
     if(fd <= 0){
         errno = EFAULT;
@@ -626,15 +620,25 @@ int write_response_OF( const int fd, int response, char* reason ){
 }
 
 /***/
-int write_response_RF(const int fd, char* data, size_t size){
+int write_response_RF(const int fd, int resp, char* data, size_t size, char* reason ){
 
     if(fd <= 0){
         errno = EFAULT;
         return -1;
     }
 
-    if((write_data(fd, data, size)) == -1){
+    if((write(fd, &resp, sizeof(int))) == -1){
         return -1;
+    }
+
+    if(resp == SUCCESS_O){
+        if((write_data(fd, data, size)) == -1){
+            return -1;
+        }
+    }else{
+        if((write_data(fd, reason, sizeof(reason))) == -1){
+            return -1;
+        }
     }
 
     return 0;
@@ -668,8 +672,8 @@ int write_response_RNF( const int fd, const int N, char** pathname, size_t* size
 /**
 *
 */
-int write_response_WF_ATF( const int fd, const int result, const char* reason,
-                const char* pathname, const char* data, const size_t size ){
+int write_response_WF_ATF( const int fd, const int result, const char* reason, int N,
+                char** pathname, size_t* size_p, char** data, size_t* size_d ){
 
     if(fd <= 0){
         errno = EFAULT;
@@ -681,20 +685,20 @@ int write_response_WF_ATF( const int fd, const int result, const char* reason,
     }
 
     if(result == SUCCESS_O){
-        if(pathname == NULL){
-            int expelled = 0; // if a file has been thrown away
-            if((write(fd, &expelled, sizeof(int))) == -1){
+        if(N <= 0){
+            // if a file has been thrown away
+            if((write(fd, &N, sizeof(int))) == -1){
                 return -1;
             }
         }else{
-            int expelled = 1;
-            if((write(fd, &expelled, sizeof(int))) == -1){
+            if((write(fd, &N, sizeof(int))) == -1){
                 return -1;
             }
 
-            size_t sz_p = sizeof(pathname);
-            if((write_function(fd, pathname, sz_p, data, size)) == -1)
-                return -1;
+            for(int i=0; i<N; i++){
+                if((write_function(fd, pathname[i], size_p[i], data[i], size_d[i])) == -1)
+                    return -1;
+            }
         }
     }else{
         if((write_data(fd, reason, sizeof(reason))) == -1){
