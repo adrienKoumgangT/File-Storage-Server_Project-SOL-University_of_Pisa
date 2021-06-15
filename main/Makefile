@@ -66,17 +66,20 @@ $(OBJ)server.o: $(SRC)server.c $(INC)utils.h $(INC)my_file.h $(INC)my_hash.h $(I
 $(OBJ)client.o: $(SRC)client.c $(INC)interface.h $(INC)utils.h $(INC)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)interface.o: $(SRC)interface.c $(INC)interface.h $(INC)communication.h
+$(OBJ)interface.o: $(SRC)interface.c $(INC)interface.h $(INC)communication.h $(INC)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJ)command_handler.o: $(SRC)command_handler.c $(INC)command_handler.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJ)replace_policies.o: $(SRC)replace_policies.c $(INC)replace_policies.h $(INC)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJ)queue.o: $(SRC)queue.c $(INC)queue.h $(INC)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJ)my_hash.o: $(SRC)my_hash.c $(INC)my_hash.h $(INC)my_file.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
 
 $(OBJ)my_file.o: $(SRC)my_file.c $(INC)my_file.h $(INC)my_hash.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
