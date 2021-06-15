@@ -55,9 +55,17 @@
 #include "my_hash.h"
 #include "my_file.h"
 #include "queue.h"
+#include "replace_policies.h"
+
+// definition of the policy to be used for the replacement
+#define _FIFO_POLICY_
+
+#define PRINT_INFO
 
 // define for all programs
 #define DIM_HASH_TABLE 103
+
+#define MAX_FILES_EJECTED 10
 
 // define for config server
 #define n_param_config 5
@@ -67,7 +75,41 @@
 #define s_n "SOCKET_NAME"
 #define c_c "CONCURRENT_CLIENTS"
 
-static int info = 1;
+// reasons for failure of operations
+#define ERROR_OF_CREATE 101
+#define R_OF_CREATE "ERROR 101: the requested file does not exist"
+#define ERROR_OF_LOCK 102
+#define R_OF_LOCK   "ERROR 102: the requested file is already in the possession of another user"
+#define ERROR_RF_EXIST 201
+#define R_RF_EXIST "ERROR 201: the requested file does not exist on the server"
+#define ERROR_RF_OPEN 202
+#define R_RF_OPEN "ERROR 202: read request on an unopened file"
+#define ERROR_RNF 301
+#define ERROR_WF 401
+#define R_WF_EXIST "ERROR 401: the requested file does not exist on the server"
+#define ERROR_WF_OPEN 402
+#define R_WF_OPEN "ERROR 402: read request on an unopened/locked file"
+#define ERROR_ATF 501
+#define R_ATF_EXIST "ERROR 501: the requested file does not exist on the server"
+#define ERROR_ATF_OPEN 502
+#define R_ATF_OPEN "ERROR 502: read request on an unopened/locked file"
+#define ERROR_LF_EXIT 601
+#define R_LF_EXIST "ERROR 601: the requested file does not exist on the server"
+#define ERROR_LF_LOCK 602
+#define R_LF_LOCK "ERROR 602: the file was not previously locked"
+#define ERROR_UF_EXIT 701
+#define R_UF_EXIST "ERROR 701: the requested file does not exist on the server"
+#define ERROR_UF_LOCK 702
+#define R_UF_LOCK "ERROR 702: the file was not previously locked"
+#define ERROR_CF_EXIT 801
+#define R_CF_EXIST "ERROR 801: the requested file does not exist on the server"
+#define ERROR_RFI_EXIT 901
+#define R_RFI_EXIST "ERROR 901: the requested file does not exist on the server"
+#define ERROR_RFI_LOCK 902
+#define R_RFI_LOCK "ERROR 902: the file was not previously locked"
+#define ERROR_SERVER 1000
+#define R_SERVER "ERROR 1000: the server does not recognize the request made"
+
 static unsigned long tempo_dgb = 1;
 
 static int close_server = 0;
@@ -82,6 +124,18 @@ typedef struct _config_for_server{
     unsigned long   number_of_files;
     char*           socket_name;
 }cfs;
+
+typedef struct _info_server{
+    unsigned long currently_number_threads_workers;
+    unsigned long currently_space_occupied;
+    unsigned long currently_number_files;
+
+    pthread_mutex_t cntw;
+    pthread_mutex_t cso;
+} info_server;
+
+static info_server IS;
+
 
 /**************************** definition of a structure that takes information
     about the files opened on the server on the server and
@@ -110,6 +164,8 @@ static hash_t *files_server;
 // request buffer
 static Queue_t* buffer_request;
 
+// list of files in server
+static Queue_p* list_files;
 
 /*********** structure for counting elements in mutual exclusion **********/
 
@@ -134,6 +190,43 @@ static int canale[2];
 
 void cleanup( void ){
     unlink(settings_server.socket_name);
+}
+
+/********** *********/
+/*
+static void inc_num_threads( void ){
+    LOCK(&IS.cntw);
+    IS.currently_number_threads_workers++;
+    UNLOCK(&IS.cntw);
+}
+
+static void dec_num_threads( void ){
+    LOCK(&IS.cntw);
+    IS.currently_number_threads_workers--;
+    UNLOCK(&IS.cntw);
+}
+
+static void setSpaceOccupied( int inc_file, size_t space ){
+    LOCK(&IS.cso);
+    IS.currently_number_files += inc_file;
+    IS.currently_space_occupied += space;
+    UNLOCK(&IS.cso);
+}
+
+static unsigned long getNumberFiles( void ){
+    return IS.currently_number_files;
+}
+
+static unsigned long getSpaceOccupied( void ){
+    return IS.currently_space_occupied;
+}
+*/
+static int hasSpace( size_t sz ){
+    int r = 0;
+    LOCK(&IS.cso);
+    if(IS.currently_space_occupied < settings_server.size_memory+sz) r = 1;
+    UNLOCK(&IS.cso);
+    return r;
 }
 
 /*********** function to initialised the structure for counting elements in mutual exclusion **********/
@@ -303,7 +396,9 @@ int is_correct_cfs(){
 */
 void read_config_server(){
 
-if(info) fprintf(stdout, "=>%ld<= : reading server configuration in progress...\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : reading server configuration in progress...\n", tempo_dgb++);
+#endif
 
     cfs *config = &settings_server;
 
@@ -320,8 +415,9 @@ if(info) fprintf(stdout, "=>%ld<= : reading server configuration in progress...\
                         config->socket_name);
     fflush(stdout);
 
-if(info) fprintf(stdout, "=>%ld<= : finished server configuration reading.\n", tempo_dgb++);
-
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : finished server configuration reading.\n", tempo_dgb++);
+#endif
 }
 
 
@@ -453,7 +549,9 @@ int config_file_parser_for_server( FILE* file ){
 */
 int config_server( char* path_file_config ){
 
-if(info) fprintf(stdout, "=>%ld<= : reading server configurations from configuration file in progress...\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "=>%ld<= : reading server configurations from configuration file in progress...\n", tempo_dgb++);
+#endif
 
     int err;
     FILE *file_config;
@@ -465,7 +563,9 @@ if(info) fprintf(stdout, "=>%ld<= : reading server configurations from configura
 
     read_config_server();
 
-fprintf(stdout, "=>%ld<= : reading server configurations from finished configuration file.\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : reading server configurations from finished configuration file.\n", tempo_dgb++);
+#endif
 
     return 0;
 }
@@ -473,8 +573,9 @@ fprintf(stdout, "=>%ld<= : reading server configurations from finished configura
 /****************************** thread workers *******************************/
 
 void* workers( void* args ){
-    int operation, err;
+    int operation = -1, err = 0;
     int toClose = 0;
+    int i=0;
     while(!close_server){
         toClose = 0;
         long fd_client_r = (long) pop(buffer_request);
@@ -485,22 +586,459 @@ void* workers( void* args ){
             goto fine_while;
         }
 
+        file_t* mf = NULL;
+        file_t* mf_e[MAX_FILES_EJECTED] ={NULL};
+        int n_fe = 0;
+        int resp = FAILED_O;
         char* pathname = NULL;
-
+        size_t sz_p = 0;
+        int reason_error = 0;
+        char reason[STR_LEN];
+        memset(reason, '\0', STR_LEN);
         switch(operation){
             case _OF_O:{ // if it's an 'open file' request
-                // I read the request for 'open file'
-                if(read_request_OF(fd_client_r, pathname) == -1){
+                int flag = 0;
+                if(read_request_OF(fd_client_r, pathname, &flag) == -1){
                     toClose = 1;
                     goto fine_while;
                 }
 
-                // TODO: trattare la richiesta
-                int resp = 0;
+                switch(flag){
+                    case O_CREATE:{
+                        // if the 'create' flag has been specified,
+                        // the file must not already be present in the db
+                        if(hash_find(files_server, pathname) != NULL){
+                            reason_error = ERROR_OF_CREATE;
+                            resp = FAILED_O;
+                        }
+                        else{
+                            char* ni = (char *) malloc(2 * sizeof(char));
+                            memset(ni, '\0', 2);
+                            while(!hasSpace(2)){
+                                char* pf = NULL;
+                                while((pf = pop_qp(list_files)) == NULL);
+                                if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
+                                else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                            }
+                            if((mf = hash_insert(files_server, pathname, ni, fd_client_r)) != NULL){
+                                resp = SUCCESS_O;
+                                push_qp(list_files, &(mf->key), &(mf->size_key));
+                            }
+                            for(i=0; i<n_fe; i++){
+                                file_free(mf_e[i]);
+                            }
+                        }
+                        break;
+                    }
+                    case O_LOCK:{
+                        // if the 'create' flag has not been specified,
+                        // the file must already exist in the db
+                        if((mf = hash_find(files_server, pathname)) == NULL)
+                            resp = FAILED_O;
+                        else{
+                            if(file_take_lock(mf, fd_client_r) == -1)
+                                resp = FAILED_O;
+                            else{
+                                resp = SUCCESS_O;
+                                #ifdef _LRU_POLICY_
+                                    repositionNodeP(list_files, mf->key);
+                                #endif
+                            }
+                        }
+                        break;
+                    }
+                    case O_CREATE_LOCK:{
+                        // if the 'create' flag has been specified,
+                        // the file must not already be present in the db
+                        if(hash_find(files_server, pathname) != NULL){
+                            reason_error = ERROR_OF_CREATE;
+                            resp = FAILED_O;
+                        }
+                        else{
+                            char* ni = (char *) malloc(2 * sizeof(char));
+                            memset(ni, '\0', 2);
+                            while(!hasSpace(2)){
+                                char* pf = NULL;
+                                while((pf = pop_qp(list_files)) == NULL);
+                                if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
+                                else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                            }
+                            if((mf = hash_insert(files_server, pathname, ni, fd_client_r)) != NULL){
+                                mf->log = fd_client_r;
+                                resp = SUCCESS_O;
+                                push_qp(list_files, &(mf->key), &(mf->size_key));
+                            }
+                            for(i=0; i<n_fe; i++){
+                                file_free(mf_e[i]);
+                            }
+                        }
+                        break;
+                    }
+                    default:{
+                        // if the 'create' flag has not been specified,
+                        // the file must already exist in the db
+                        if((mf = hash_find(files_server, pathname)) == NULL){
+                            reason_error = ERROR_OF_CREATE;
+                            resp = FAILED_O;
+                        }
+                        else{
+                            resp = SUCCESS_O;
+                        }
+                    }
+                }
 
                 // I write the result of the request for 'open file'
-                if(write_response_OF(fd_client_r, resp, NULL) == -1){
+                if(resp == FAILED_O){
+                    switch (reason_error) {
+                        case ERROR_OF_CREATE:{
+                            strncpy(reason, R_OF_CREATE, STR_LEN - 1);
+                            break;
+                        }
+                        case ERROR_OF_LOCK:{
+                            strncpy(reason, R_OF_LOCK, STR_LEN-1);
+                            break;
+                        }
+                        default:{
+                            strncpy(reason, R_SERVER, STR_LEN-1);
+                        }
+                    }
+                }else{
+                    if(write_response_OF(fd_client_r, resp, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                }
+                break;
+            }
+            case _RF_O:{ // if it's an 'read file' request
+                if(read_request_RF(fd_client_r, pathname, &sz_p) == -1){
                     toClose = 1;
+                    goto fine_while;
+                }
+
+                if((mf = hash_find(files_server, pathname)) == NULL){
+                    reason_error = ERROR_RF_EXIST;
+                    resp = FAILED_O;
+                    strncpy(reason, R_RF_EXIST, STR_LEN-1);
+                    if(write_response_RF(fd_client_r, resp, NULL, -1, reason) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    goto fine_while;
+                }else{
+                    /*
+                    if(!file_has_fd(mf, fd_client_r)){
+                        resp = FAILED_O;
+                        strncpy(reason, R_RF_OPEN, STR_LEN-1);
+                        if(write_response_RF(fd_client_r, resp, buf_data, sz_bd, NULL) == -1){
+                            toClose = 1;
+                        }
+                        goto fine_while;
+                    }*/
+
+                    char* buf_data = NULL;
+                    size_t sz_bd = 0;
+                    file_read_content(mf, buf_data, &sz_bd);
+                    resp = SUCCESS_O;
+                    if(write_response_RF(fd_client_r, resp, buf_data, sz_bd, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    #ifdef _LRU_POLICY_
+                        repositionNodeP(list_files, mf->key);
+                    #endif
+                    goto fine_while;
+                }
+                break;
+            }
+            case _RNF_O:{ // if it's an 'read n file' request
+                int N = 0;
+                if(read_request_RNF(fd_client_r, &N) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+                // TODO: da finire
+                break;
+            }
+            case _WF_O:{ // if it's an 'write file' request'
+                char* data = NULL;
+                size_t sz_d = 0;
+                if(read_request_WF_ATF(fd_client_r, pathname, &sz_p, data, &sz_d) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }else{
+                    size_t sz_aux = sz_d;
+                    while(!hasSpace(sz_aux)){
+                        char* pf = NULL;
+                        while((pf = pop_qp(list_files)) == NULL);
+                        if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
+                        else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                        sz_aux -= mf_e[n_fe]->size_data;
+                        n_fe++;
+                    }
+
+                    if((mf = hash_find(files_server, pathname)) == NULL){
+                        resp = FAILED_O;
+                        strncpy(reason, R_WF_EXIST, STR_LEN-1);
+                        if(write_response_WF_ATF(fd_client_r, resp, reason, -1, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    if(!file_has_lock(mf, fd_client_r)){
+                        resp = FAILED_O;
+                        strncpy(reason, R_WF_OPEN, STR_LEN-1);
+                        if(write_response_WF_ATF(fd_client_r, resp, reason, -1, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    if((mf = hash_update_insert(files_server, pathname, sz_p, data, sz_d)) == NULL){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    resp = SUCCESS_O;
+                    push_qp(list_files, &(mf->key), &(mf->size_key));
+                    if(n_fe > 0){
+                        char** array_p = (char **) malloc(n_fe * sizeof(char*));
+                        char** array_d = (char **) malloc(n_fe * sizeof(char*));
+                        size_t* array_szp = (size_t *) malloc(n_fe * sizeof(size_t));
+                        size_t* array_szd = (size_t *) malloc(n_fe * sizeof(size_t));
+                        for(i=0; i<n_fe; i++){
+                            array_p[i]      = mf_e[i]->key;
+                            array_d[i]      = mf_e[i]->data;
+                            array_szp[i]    = mf_e[i]->size_key;
+                            array_szd[i]    = mf_e[i]->size_data;
+                        }
+                        if(write_response_WF_ATF(fd_client_r, resp, NULL, n_fe, array_p, array_szp, array_d, array_szd) == -1){
+                            toClose = 1;
+                        }
+                        for(i=0; i<n_fe; i++){
+                            file_free(mf_e[i]);
+                        }
+                        goto fine_while;
+                    }else{
+                        if(write_response_WF_ATF(fd_client_r, resp, NULL, n_fe, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                    }
+                }
+                break;
+            }
+            case _ATF_O:{// if it's an 'append to file' request
+                char* data = NULL;
+                size_t sz_d = 0;
+                if(read_request_WF_ATF(fd_client_r, pathname, &sz_p, data, &sz_d) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }else{
+                    size_t sz_aux = sz_d;
+                    while(!hasSpace(sz_aux)){
+                        char* pf = NULL;
+                        while((pf = pop_qp(list_files)) == NULL);
+                        if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
+                        else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                        sz_aux -= mf_e[n_fe]->size_data;
+                        n_fe++;
+                    }
+
+                    if((mf = hash_find(files_server, pathname)) == NULL){
+                        resp = FAILED_O;
+                        strncpy(reason, R_WF_EXIST, STR_LEN-1);
+                        if(write_response_WF_ATF(fd_client_r, resp, reason, -1, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    if(!file_has_lock(mf, fd_client_r)){
+                        resp = FAILED_O;
+                        strncpy(reason, R_WF_OPEN, STR_LEN-1);
+                        if(write_response_WF_ATF(fd_client_r, resp, reason, -1, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    if((mf = hash_update_cat(files_server, pathname, sz_p, data, sz_d)) == NULL){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    resp = SUCCESS_O;
+                    reset_sz_qp(list_files, &(mf->key), &(mf->size_key));
+                    if(n_fe > 0){
+                        char** array_p = (char **) malloc(n_fe * sizeof(char*));
+                        char** array_d = (char **) malloc(n_fe * sizeof(char*));
+                        size_t* array_szp = (size_t *) malloc(n_fe * sizeof(size_t));
+                        size_t* array_szd = (size_t *) malloc(n_fe * sizeof(size_t));
+                        for(i=0; i<n_fe; i++){
+                            array_p[i]      = mf_e[i]->key;
+                            array_d[i]      = mf_e[i]->data;
+                            array_szp[i]    = mf_e[i]->size_key;
+                            array_szd[i]    = mf_e[i]->size_data;
+                        }
+                        if(write_response_WF_ATF(fd_client_r, resp, NULL, n_fe, array_p, array_szp, array_d, array_szd) == -1){
+                            toClose = 1;
+                        }
+                        for(i=0; i<n_fe; i++){
+                            file_free(mf_e[i]);
+                        }
+                        goto fine_while;
+                    }else{
+                        if(write_response_WF_ATF(fd_client_r, resp, NULL, n_fe, NULL, NULL, NULL, NULL) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                    }
+                }
+                break;
+            }
+            case _LF_O:{// if it's an 'lock file' request
+                if(read_request_RF(fd_client_r, pathname, &sz_p) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+
+                if((mf = hash_find(files_server, pathname)) == NULL){
+                    resp = FAILED_O;
+                    strncpy(reason, R_LF_EXIST, STR_LEN-1);
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    goto fine_while;
+                }else{
+                    if(!file_has_lock(mf, fd_client_r))
+                        file_take_lock(mf, fd_client_r);
+                    resp = SUCCESS_O;
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    #ifdef _LRU_POLICY_
+                        repositionNodeP(list_files, mf->key);
+                    #endif
+                    goto fine_while;
+                }
+                break;
+            }
+            case _UF_O:{// if it's an 'unlock file' request
+                if(read_request_RF(fd_client_r, pathname, &sz_p) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+
+                if((mf = hash_find(files_server, pathname)) == NULL){
+                    resp = FAILED_O;
+                    strncpy(reason, R_UF_EXIST, STR_LEN-1);
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    goto fine_while;
+                }else{
+                    if(!file_has_lock(mf, fd_client_r)){
+                        resp = FAILED_O;
+                        strncpy(reason, R_UF_LOCK, STR_LEN-1);
+                        if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+                    file_leave_lock(mf, fd_client_r);
+                    resp = SUCCESS_O;
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    #ifdef _LRU_POLICY_
+                        repositionNodeP(list_files, mf->key);
+                    #endif
+                    goto fine_while;
+                }
+                break;
+            }
+            case _CF_O:{// if it's an 'close file' request
+                if(read_request_RF(fd_client_r, pathname, &sz_p) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+
+                if((mf = hash_find(files_server, pathname)) == NULL){
+                    resp = FAILED_O;
+                    strncpy(reason, R_LF_EXIST, STR_LEN-1);
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    goto fine_while;
+                }else{
+                    file_remove_fd(mf, fd_client_r);
+                    if(file_has_lock(mf, fd_client_r))
+                        file_leave_lock(mf, fd_client_r);
+                    resp = SUCCESS_O;
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    #ifdef _LRU_POLICY_
+                        repositionNodeP(list_files, mf->key);
+                    #endif
+                    goto fine_while;
+                }
+                break;
+            }
+            case _RFI_O:{// if it's an 'remove file' request
+                if(read_request_RF(fd_client_r, pathname, &sz_p) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+
+                if((mf = hash_find(files_server, pathname)) == NULL){
+                    resp = FAILED_O;
+                    strncpy(reason, R_LF_EXIST, STR_LEN-1);
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    goto fine_while;
+                }else{
+                    if(!file_has_lock(mf, fd_client_r)){
+                        resp = FAILED_O;
+                        strncpy(reason, R_LF_LOCK, STR_LEN-1);
+                        if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    if((mf = hash_remove(files_server, pathname)) == NULL){
+                        resp = FAILED_O;
+                        strncpy(reason, R_LF_EXIST, STR_LEN-1);
+                        if(write_response_LF_UF_CF_RFI(fd_client_r, resp, reason) == -1){
+                            toClose = 1;
+                            goto fine_while;
+                        }
+                        goto fine_while;
+                    }
+
+                    resp = SUCCESS_O;
+                    if(write_response_LF_UF_CF_RFI(fd_client_r, resp, NULL) == -1){
+                        toClose = 1;
+                        goto fine_while;
+                    }
+                    #ifdef _LRU_POLICY_
+                        repositionNodeP(list_files, mf->key);
+                    #endif
                     goto fine_while;
                 }
                 break;
@@ -511,13 +1049,11 @@ void* workers( void* args ){
             }
         }
 
-
-
         // TODO: gestire le diverse richieste
 
         fine_while:
-            SYSCALL_EXIT_EQ("write", err, write(canale[0], &fd_client_r, sizeof(long)), -1, "");
-            SYSCALL_EXIT_EQ("write", err, write(canale[0], &toClose, sizeof(int)), -1, "");
+            SYSCALL_EXIT_EQ("write", err, write(canale[1], &fd_client_r, sizeof(long)), -1, "");
+            SYSCALL_EXIT_EQ("write", err, write(canale[1], &toClose, sizeof(int)), -1, "");
     }
 
     return NULL;
@@ -531,14 +1067,16 @@ void* workers( void* args ){
 void master( void ){
     int i, err;
 
-if(info) fprintf(stdout, "=>%ld<= : creating a file descriptor container.\n", tempo_dgb++);
-
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : creating a file descriptor container.\n", tempo_dgb++);
+#endif
     fd_set set, tmpset;
     FD_ZERO(&set);
     FD_ZERO(&tmpset);
 
-if(info) fprintf(stdout, "=>%ld<= : creation and configuration of the server communication channel with clients in progress...\n", tempo_dgb++);
-
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : creation and configuration of the server communication channel with clients in progress...\n", tempo_dgb++);
+#endif
     struct sockaddr_un server_addr;
     memset(&server_addr, '0', sizeof(server_addr));
     server_addr.sun_family = AF_UNIX;
@@ -553,9 +1091,11 @@ if(info) fprintf(stdout, "=>%ld<= : creation and configuration of the server com
 
     FD_SET(fd_socket, &set);
 
-if(info) fprintf(stdout, "=>%ld<= : finished creation and configuration of the server communication channel with clients.\n",tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : finished creation and configuration of the server communication channel with clients.\n",tempo_dgb++);
 
-if(info) fprintf(stdout, "=>%ld<= : configuration of the methods of creation and functioning of threads in progress...\n", tempo_dgb++);
+fprintf(stdout, "[%ld] : configuration of the methods of creation and functioning of threads in progress...\n", tempo_dgb++);
+#endif
 
     SYSCALL_EXIT_EQ("pipe", err, pipe(canale), -1, "");
     FD_SET(canale[0], &set);
@@ -574,15 +1114,19 @@ if(info) fprintf(stdout, "=>%ld<= : configuration of the methods of creation and
 
     SYSCALL_EXIT_EQ("init_struct_count_elem", threads_created, init_struct_count_elem(), NULL, "");
 
-if(info) fprintf(stdout, "=>%ld<= : configuration of the methods of creation and functioning of the finished threads.\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : configuration of the methods of creation and functioning of the finished threads.\n", tempo_dgb++);
 
-if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tempo_dgb++);
+fprintf(stdout, "[%ld] : beginning of acceptance of requests.\n", tempo_dgb++);
+#endif
 
     SYSCALL_EXIT_EQ("init_struct_count_elem", clients_connected, init_struct_count_elem(), NULL, "");
 
     SYSCALL_EXIT_EQ("hash_create", files_server, hash_create( DIM_HASH_TABLE, &hash_function_for_file_t, &hash_key_compare_for_file_t ) , NULL, "")
 
     SYSCALL_EXIT_EQ("initQueue", buffer_request, initQueue(), NULL, "");
+
+    SYSCALL_EXIT_EQ("initQueue", list_files, initQueueP(), NULL, "");
 
     SYSCALL_EXIT_EQ("init_hash_info_files", err, init_hash_info_files(), -1, "");
 
@@ -625,7 +1169,7 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
                     int toClose = 0;
                     SYSCALL_EXIT_EQ("read", err, read(canale[0], &connfd, sizeof(long)), -1, "");
                     SYSCALL_EXIT_EQ("read", err, read(canale[0], &toClose, sizeof(int)), -1, "");
-                    if(toClose){
+                    if(!toClose){
                         FD_SET(connfd, &set);
                         if(connfd > fdmax) fdmax = connfd;
                     }
@@ -663,10 +1207,10 @@ if(info) fprintf(stdout, "=>%ld<= : beginning of acceptance of requests.\n", tem
 /******************************* main function *******************************/
 
 int main(int argc, char** argv){
-//    cleanup();
+    cleanup();
 //    atexit(cleanup);
 
-    if(argc < 2){
+    if(argc != 2){
         fprintf(stderr, "test file execution scheme: %s pathname_file_config\n", argv[0]);
         return EXIT_FAILURE;
     }
@@ -675,11 +1219,15 @@ int main(int argc, char** argv){
 
     SYSCALL_EXIT_EQ("config_server", err, config_server(argv[1]), -1,
                             "server configuration failure");
-
-if(info) fprintf(stdout, "=>%ld<= : server startup!\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : server startup!\n", tempo_dgb++);
+#endif
 
     master();
 
-if(info) fprintf(stdout, "=>%ld<= : server closed!\n", tempo_dgb++);
+#ifdef PRINT_INFO
+fprintf(stdout, "[%ld] : server closed!\n", tempo_dgb++);
+#endif
+
     return 0;
 }
