@@ -68,7 +68,7 @@
 #define time_to_connect_sec 5
 #define time_to_connect_nsec (time_to_connect_sec * 1000000)
 
-char PATHNAME[2040];
+char PATHNAME[2048];
 int LEN_PATHNAME = 0;
 
 typedef struct _arg_list{
@@ -204,7 +204,7 @@ arg_list* listOfFile( const char* nomedir, arg_list** list, long* n ){
         struct dirent* file;
         arg_list* last = *list;
 
-        while(*n-- != 0 && (errno = 0, file = readdir(dir)) != NULL){
+        while(*n != 0 && (errno = 0, file = readdir(dir)) != NULL){
             struct stat statbuf;
             char filename[MAX_FILE_NAME];
             int len1 = strlen(nomedir);
@@ -229,11 +229,13 @@ arg_list* listOfFile( const char* nomedir, arg_list** list, long* n ){
                           if(last == NULL) return NULL;
                       }
 	        }else{
+                *n = *n -1;
                 arg_list* new_file = (arg_list *) malloc(sizeof(arg_list));
-                int len = strlen(file->d_name);
-                new_file->arg = (char *) malloc((len+1) * sizeof(char));
-                memset(new_file->arg, '\0', len+1);
-                strncpy(new_file->arg, file->d_name, len+1);
+                new_file->arg = (char *) malloc(MAX_FILE_NAME * sizeof(char));
+                memset(new_file->arg, '\0', MAX_FILE_NAME);
+                strncpy(new_file->arg, nomedir, MAX_FILE_NAME-1);
+                strncat(new_file->arg, "/", MAX_FILE_NAME-1);
+                strncat(new_file->arg, file->d_name, MAX_FILE_NAME-1);
                 new_file->next = NULL;
                 if(last == NULL) *list = new_file;
                 else last->next = new_file;
@@ -263,12 +265,14 @@ arg_list* listOfFile( const char* nomedir, arg_list** list, long* n ){
 int do_cmd_w( char* arg, long n ){
     if(!arg) return -1;
 
-    char* mdir = getPath(arg, PATHNAME, LEN_PATHNAME);
-    if(mdir == NULL){
+    char mdir[MAX_FILE_NAME];
+    if(realpath(arg, mdir) == NULL){
+        fprintf(stderr, "ERROR: invalid path name for folder %s\n", arg);
         return -1;
     }
 
     arg_list* flist = NULL;
+    if(n == 0) n = -2;
     if(listOfFile(mdir, &flist, &n) == NULL) return -1;
     arg_list *corr = flist;
     arg_list *prev = NULL;
@@ -283,8 +287,6 @@ int do_cmd_w( char* arg, long n ){
         if(prev->arg) free(prev->arg);
         free(prev);
     }
-
-    if(strcmp(mdir, arg) != 0) free(mdir);
 
     return 0;
 }
@@ -304,8 +306,8 @@ int do_cmd_W( char** args, long n ){
 
     if(print_operation) fprintf(stdout, "[%ld] writing '%ld' files to the server\n", timeToPrint++, n);
     for(int i=0; i<n; i++){
-        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
-        if(path == NULL){
+        char path[MAX_FILE_NAME];
+        if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
         }
@@ -314,8 +316,6 @@ int do_cmd_W( char** args, long n ){
         }else if(writeFile(path, dirname_D) == -1){
 
         }
-
-        if(strcmp(path, args[i]) != 0) free(path);
     }
 
     return 0;
@@ -332,18 +332,12 @@ int do_cmd_W( char** args, long n ){
 */
 int do_cmd_D( char* arg ){
     if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-w' and '-W' commands : %s\n", timeToPrint++ ,arg);
-    if((LEN_PATHNAME + strlen(arg) +1) > 2048){
-        fprintf(stderr, "invalid path name for folder '%s': too long\n", arg);
+    memset(dirname_D, '\0', STR_LEN);
+    if(realpath(arg, dirname_D) == NULL){
+        fprintf(stderr, "ERROR: invalid path name for folder '%s'\n", arg);
         return -1;
     }
-    memset(dirname_D, '\0', STR_LEN);
-    if(arg[0] != '/'){
-        if(strncpy(dirname_D, PATHNAME, LEN_PATHNAME+1) == NULL) return -1;
-        if(strncpy(dirname_D, "/", 2) == NULL) return -1;
-        if(strcat(dirname_D, arg) == NULL) return -1;
-    }else{
-        if(strncpy(dirname_D, arg, STR_LEN) == NULL) return -1;
-    }
+    if(print_operation) fprintf(stdout, "[%ld] the save folder for files ejected from the server for the '-w' and '-W' commands now is : %s\n", timeToPrint++, dirname_D);
     return 0;
 }
 
@@ -364,8 +358,8 @@ int do_cmd_r( char** args, long n ){
     char* buf_read = NULL;
 
     for(int i=0; i<n; i++){
-        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
-        if(path == NULL){
+        char path[MAX_FILE_NAME];
+        if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
         }
@@ -383,7 +377,6 @@ int do_cmd_r( char** args, long n ){
         }
         fprintf(stdout, "contents of file '%s' read on server:%s\n", path, buf_read);
         if(buf_read) free(buf_read);
-        if(strcmp(path, args[i]) != 0) free(path);
     }
 
     return 0;
@@ -425,19 +418,13 @@ int do_cmd_R( long arg ){
 *           -1 in case of failure
 */
 int do_cmd_d( char* arg ){
-    if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-r' and '-R' commands : %s\n", timeToPrint++ ,arg);
-    if((LEN_PATHNAME + strlen(arg) +1) > 2048){
-        fprintf(stderr, "invalid path name for folder '%s': too long\n", arg);
+    if(print_operation) fprintf(stdout, "[%ld] change the save folder for files ejected from the server for the '-r' and '-R' commands.\n", timeToPrint++);
+    memset(dirname_d, '\0', STR_LEN);
+    if(realpath(arg, dirname_d) == NULL){
+        fprintf(stderr, "ERROR: invalid path name for folder '%s'\n", arg);
         return -1;
     }
-    memset(dirname_d, '\0', STR_LEN);
-    if(arg[0] != '/'){
-        if(strncpy(dirname_d, PATHNAME, LEN_PATHNAME+1) == NULL) return -1;
-        if(strncpy(dirname_d, "/", 2) == NULL) return -1;
-        if(strcat(dirname_d, arg) == NULL) return -1;
-    }else{
-        if(strncpy(dirname_d, arg, STR_LEN) == NULL) return -1;
-    }
+    if(print_operation) fprintf(stdout, "[%ld] the save folder for files ejected from the server for the '-r' and '-R' commands now is : %s\n", timeToPrint++, dirname_d);
     return 0;
 }
 
@@ -448,7 +435,7 @@ int do_cmd_d( char* arg ){
 * @params arg : argument passed to the command
 */
 void do_cmd_tt( long arg ){
-    if(print_operation) fprintf(stdout, "[%ld] change of waiting time between 2 requests : %ld milliseconds\n", timeToPrint, arg);
+    if(print_operation) fprintf(stdout, "[%ld] change of waiting time between 2 requests : %ld milliseconds\n", timeToPrint++, arg);
     timeToPause = arg;
 }
 
@@ -464,8 +451,8 @@ void do_cmd_tt( long arg ){
 */
 int do_cmd_l( char** args, long n ){
     for(int i=0; i<n; i++){
-        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
-        if(path == NULL){
+        char path[MAX_FILE_NAME];
+        if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
         }
@@ -475,7 +462,6 @@ int do_cmd_l( char** args, long n ){
         }else{
             if(print_operation) fprintf(stdout, "[%ld] successful acquisition of mutual exclusion on file '%s'\n", timeToPrint++, path);
         }
-        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
@@ -492,8 +478,8 @@ int do_cmd_l( char** args, long n ){
 */
 int do_cmd_u( char** args, long n ){
     for(int i=0; i<n; i++){
-        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
-        if(path == NULL){
+        char path[MAX_FILE_NAME];
+        if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
         }
@@ -503,7 +489,6 @@ int do_cmd_u( char** args, long n ){
         }else{
             if(print_operation) fprintf(stdout, "[%ld] successful releasing of mutual exclusion on file '%s'\n", timeToPrint++, path);
         }
-        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
@@ -520,8 +505,8 @@ int do_cmd_u( char** args, long n ){
 */
 int do_cmd_c( char** args, long n ){
     for(int i=0; i<n; i++){
-        char* path = getPath(args[i], PATHNAME, LEN_PATHNAME);
-        if(path == NULL){
+        char path[MAX_FILE_NAME];
+        if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
         }
@@ -531,7 +516,6 @@ int do_cmd_c( char** args, long n ){
         }else{
             if(print_operation) fprintf(stdout, "[%ld] successful removing the '%s' file on the server\n", timeToPrint++, path);
         }
-        if(strcmp(path, args[i]) != 0) free(path);
     }
     return 0;
 }
@@ -562,39 +546,11 @@ int main(int argc, char** argv){
         exit(EXIT_FAILURE);
     }
 
-    int err;
+    //int err;
+    char* p_err = NULL;
 
-    // I read the path where you run the executable from the root
-    int cfp[2];
-
-    SYSCALL_EXIT_EQ("pipe", err, pipe(cfp), -1, "");
-    SYSCALL_EXIT_EQ("fork", err, fork(), -1, "");
-
-    if(err == 0){
-        close(cfp[0]);
-        SYSCALL_EXIT_EQ("dup2", err, dup2(cfp[1], 1), -1, "");
-        close(cfp[1]);
-        execlp("pwd", "pwd", NULL);
-        perror("eseguendo pwd");
-        exit(errno);
-    }
-
-    close(cfp[1]);
-    char p[2040];
-    memset(p, '\0', 2040);
-    SYSCALL_EXIT_EQ("read", err, read(cfp[0], p, 2040), -1, "read");
-
-    p[strcspn(p, "\n")] = '\0';
-    close(cfp[0]);
-
-    memset(PATHNAME, '\0', 2040);
-    if(p[2] != '/'){ // in case we are not in the root folder
-        strncpy(PATHNAME, p, 2040);
-        strncat(PATHNAME, "/", 2);
-    }else{ // in case we are in the root folder
-        strncpy(PATHNAME, p, 2040);
-    }
-
+    memset(PATHNAME, '\0', 2048);
+    SYSCALL_EXIT_EQ("realpath", p_err, realpath(".", PATHNAME), NULL, "");
     LEN_PATHNAME = strlen(PATHNAME);
 
     int i=0;
@@ -638,7 +594,6 @@ int main(int argc, char** argv){
             goto endClient;
         }
         memset(dirname_D, '\0', STR_LEN);
-        strncpy(dirname_D, p, 2040);
         strncat(dirname_D, mdir, STR_LEN);
     }
     mdir = getFirstddir();
@@ -695,6 +650,7 @@ int main(int argc, char** argv){
             }
             case cmd_tt:{
                 do_cmd_tt(mycmd->intArg);
+                break;
             }
             case cmd_l:{
                 if(do_cmd_l(mycmd->list_of_arguments, mycmd->countArgs) == -1){
