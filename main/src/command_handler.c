@@ -322,6 +322,7 @@ int initCmds( int argc, char** argv ){
             }
             /**********  comande w   **************/
             case cmd_w:{
+                flag_w_W = 1;
                 memset(str_args, '\0', STR_LEN);
                 if(argv[i][2] != '\0'){
                     strncpy(str_args, (argv[i] + 2), STR_LEN);
@@ -389,6 +390,7 @@ int initCmds( int argc, char** argv ){
             }
             /**********  comande r   **************/
             case cmd_r:{
+                flag_r_R = 1;
                 memset(str_args, '\0', STR_LEN);
                 int count_a = 1;
                 if(argv[i][2] != '\0'){
@@ -418,6 +420,7 @@ int initCmds( int argc, char** argv ){
             }
             /**********  comande R   **************/
             case cmd_R:{
+                flag_r_R = 1;
                 long n_to_R = 0;
                 memset(str_args, '\0', STR_LEN);
                 if(argv[i][2] != '\0'){
