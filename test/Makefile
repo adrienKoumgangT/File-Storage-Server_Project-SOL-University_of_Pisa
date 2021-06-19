@@ -58,22 +58,19 @@ INCMAIN = ../main/include/
 
 all: $(TARGETS)
 
-$(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)queue.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o $(OBJMAIN)communication.o $(OBJMAIN)replace_policies.o $(OBJMAIN)utils.o
+$(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)queue.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o $(OBJMAIN)replace_policies.o $(OBJMAIN)utils.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LIBS)
 
-$(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o $(OBJMAIN)command_handler.o $(OBJMAIN)communication.o $(OBJMAIN)utils.o
+$(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o $(OBJMAIN)command_handler.o $(OBJMAIN)utils.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
-$(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h $(INCMAIN)my_file.h $(INCMAIN)my_hash.h $(INCMAIN)queue.h $(INCMAIN)replace_policies.h $(INCMAIN)communication.h
+$(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h $(INCMAIN)my_file.h $(INCMAIN)my_hash.h $(INCMAIN)queue.h $(INCMAIN)replace_policies.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
 
 $(OBJMAIN)client.o: $(SRCMAIN)client.c $(INCMAIN)interface.h $(INCMAIN)utils.h $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h $(INCMAIN)communication.h $(INCMAIN)utils.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
-
-$(OBJMAIN)communication.o: $(SRCMAIN)communication.c $(INCMAIN)communication.h $(INCMAIN)my_file.h
+$(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h $(INCMAIN)communication.h $(INCMAIN)utils.h $(INCMAIN)read_write_file.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJMAIN)replace_policies.o: $(SRCMAIN)replace_policies.c $(INCMAIN)replace_policies.h $(INCMAIN)utils.h
