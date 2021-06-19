@@ -52,12 +52,12 @@
 static inline int read_file( const char *pathname, char* str, size_t* sz, int flag ){
 
     int fd;
-    if((fd = open(pathname, O_RDONLY)) == -1){ // TODO: cambiare O_RDONLY con flag
+    if((fd = open(pathname, flag)) == -1){
         return -1;
     }
     struct stat info;
     fstat(fd, &info);
-    *sz = info.st_size;
+    *sz = (size_t) info.st_size;
     if(str)
         free(str);
     str = malloc(*sz);
