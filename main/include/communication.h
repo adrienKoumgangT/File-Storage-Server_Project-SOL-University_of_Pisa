@@ -72,99 +72,150 @@
 
 
 
-/******************************* client  *************************/
+/***  utility functions for communication functions between client servers  ***/
 
+/** Evita letture parziali
+ *
+ *   \retval -1   errore (errno settato)
+ *   \retval  0   se durante la lettura da fd leggo EOF
+ *   \retval size se termina con successo
+ */
+static inline int readn(long fd, void *buf, size_t size) {
+    size_t left = size;
+    int r;
+    char *bufptr = (char*)buf;
+    while(left>0) {
+	if ((r=read((int)fd ,bufptr,left)) == -1) {
+	    if (errno == EINTR) continue;
+	    return -1;
+	}
+	if (r == 0) return 0;   // EOF
+        left    -= r;
+	bufptr  += r;
+    }
+    return size;
+}
 
-/*************************** write request **********************/
+/** Evita scritture parziali
+ *
+ *   \retval -1   errore (errno settato)
+ *   \retval  0   se durante la scrittura la write ritorna 0
+ *   \retval  1   se la scrittura termina con successo
+ */
+static inline int writen(long fd, void *buf, size_t size) {
+    size_t left = size;
+    int r;
+    char *bufptr = (char*)buf;
+    while(left>0) {
+	if ((r=write((int)fd ,bufptr,left)) == -1) {
+	    if (errno == EINTR) continue;
+	    return -1;
+	}
+	if (r == 0) return 0;
+        left    -= r;
+	bufptr  += r;
+    }
+    return 1;
+}
 
+static inline int read_pathname(int fd, char** pathname, size_t* sz_p){
+    if(readn(fd, (void *) sz_p, sizeof(size_t)) == -1){
+        return -1;
+    }
+    *pathname = (char *) malloc(*sz_p);
+    memset(*pathname, '\0', *sz_p);
+    if((readn(fd, (void *) *pathname, *sz_p)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
-/**
-* makes an open file request to the server
-*/
-int write_request_OF( const int, const char*, int );
+static inline int write_pathname(int fd, const char* pathname, size_t sz_p){
+    if((writen(fd, (void *) &sz_p, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd, (void *) pathname, sz_p)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
-/**
-*
-*/
-int write_request_RF( const int, const char* );
+static inline int read_reason( int fd, char** reason ){
+    size_t sz_r  = 0;
+    if((readn(fd, &sz_r, sizeof(size_t))) == -1){
+        return -1;
+    }
+    *reason = (char *) malloc(sz_r);
+    if((readn(fd, *reason, sz_r)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
-/**
-*
-*/
-int write_request_RNF( const int, const int );
+static inline int write_reason( int fd, char* reason ){
+    size_t sz_r = sizeof(reason);
+    if((writen(fd, (void *) &sz_r, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd, (void *) reason, sz_r)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
-/**
-* function that allows me to tell the server that
-* the client wants to write a file in the database
-*/
-int write_request_WF_ATF( const int, const int, const char*, const char*, size_t );
+static inline int write_data( int fd, void* data, size_t sz_d ){
+    if((writen(fd, (void *) &sz_d, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd, (void *) data, sz_d)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
-int write_request_LF_UF_CF_RFI( const int, const int, const char* );
+static inline int read_data( int fd, void** data, size_t* size ){
+    if((readn(fd, size, sizeof(size_t))) == -1){
+        return -1;
+    }
+    *data = malloc(*size);
+    if((readn(fd, *data, *size)) == -1){
+        return -1;
+    }
+    return 0;
+}
 
+static inline int write_file_eject( int fd, int n, char** pathname, size_t* size_p, void** data, size_t* size_d ){
+    if((writen(fd, &n, sizeof(int))) == -1){
+        return -1;
+    }
+    if(n > 0){
+        for(int i=0; i<n; i++){
+            if((write_pathname(fd, pathname[i], size_p[i])) == -1){
+                return -1;
+            }
+            if((write_data(fd, data[i], size_d[i])) == -1){
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
 
-/****************************** read response ************************/
-
-/***/
-int read_response_OF( const int, int*, char* );
-
-/***/
-int read_response_RF( const int, int*, char**, size_t*, char* );
-
-/***/
-int read_response_RNF( const int, int*, char**, size_t*, char**, size_t* );
-
-int read_response_WF_ATF( const int, int*, char*, int*, char**, size_t*, char**, size_t* );
-
-int read_response_LF_UF_CF_RFI( const int, int*, char* );
-
-
-/*********************************** server ***************************/
-
-
-/*************************** read request **********************/
-
-/**
-* receives an open file request from the client
-*/
-int read_request_OF( const int, char*, int* );
-
-
-/**
-*
-*/
-int read_request_RF( const int, char*, size_t* );
-
-/**
-*
-*/
-int read_request_RNF( const int, int* );
-
-/**
-* function that allows a client to read the data requested
-* to write a file in the database
-*/
-int read_request_WF_ATF( const int, char*, size_t*, char*, size_t* );
-
-int read_request_LF_UF_CF_RFI( const int, char* );
-
-
-/********************************* write response ***************************/
-
-/***/
-int write_response_OF( const int, int, char* );
-
-/***/
-int write_response_RF(const int, const int, char*, size_t, char* );
-
-/***/
-int write_response_RNF( const int, const int, char**, size_t*, char**, size_t* );
-
-/**
-*
-*/
-int write_response_WF_ATF(  const int, const int, const char*, int, char**, size_t*, char**, size_t* );
-
-/***/
-int write_response_LF_UF_CF_RFI( const int, const int, const char* );
+static inline int read_file_eject( int fd, int* n, char*** pathname, size_t** size_p, void*** data, size_t** size_d){
+    if((readn(fd, n, sizeof(int))) == -1){
+        return -1;
+    }
+    if(*n > 0){
+        for(int i=0; i<*n; i++){
+            if((read_pathname(fd, &(*pathname[i]), size_p[i])) == -1){
+                return -1;
+            }
+            if((read_data(fd, &(*data[i]), size_d[i])) == -1){
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
 
 #endif
