@@ -66,9 +66,12 @@
 #include "read_write_file.h"
 #include "utils.h"
 
+#define PRINT_REASON
 
 static int fd_sock;
 static struct sockaddr_un serv_addr;
+static int operation = -1;
+static int result = -1;
 long bytes_read;
 long bytes_write;
 
@@ -187,13 +190,32 @@ int openFile( const char* pathname, int flags ){
         return -1;
     }
 
-    if( !(flags == O_CREATE) && !(flags == O_LOCK) &&
-                                    !(flags == O_CREATE_LOCK)){
-        #ifdef PRINT_REASON
-            fprintf(stderr, "Information: open file operation failed, reason: invalid opening flag (%d)\n", flags);
-        #endif
-        errno = EOPNOTSUPP;
-        return -1;
+    switch( flags ){
+        case O_CREATE:{
+            #ifdef PRINT_REASON
+                fprintf(stdout, "Information: open file operation with flag 'O_CREATE'\n");
+            #endif
+            break;
+        }
+        case O_LOCK:{
+            #ifdef PRINT_REASON
+                fprintf(stdout, "Information: open file operation with flag 'O_LOCK'\n");
+            #endif
+            break;
+        }
+        case O_CREATE_LOCK:{
+            #ifdef PRINT_REASON
+                fprintf(stdout, "Information: open file operation with flag 'O_CREATE_LOCK'\n");
+            #endif
+            break;
+        }
+        default:{
+            #ifdef PRINT_REASON
+                fprintf(stderr, "Information: open file operation failed, reason: invalid opening flag (%d)\n", flags);
+            #endif
+            errno = EOPNOTSUPP;
+            return -1;
+        }
     }
 
     int len_pathname = strlen(pathname);
@@ -202,20 +224,59 @@ int openFile( const char* pathname, int flags ){
         return -1;
     }
 
-    if( write_request_OF(fd_sock, pathname, flags) == -1 ){
+    /******* sending the 'openFile' request to the server ******/
+
+    operation = _OF_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
         return -1;
     }
 
-    int *resp = NULL;
-    char* reason = NULL;
-    if( read_response_OF(fd_sock, resp, reason) == -1 ){
+    // I specify the type of operation to be done
+    if((writen(fd_sock, (void *) &flags, sizeof(int))) == -1){
         return -1;
     }
 
-    if( *resp == FAILED_O){
+    size_t sz_p = sizeof(pathname);
+    if(sz_p <= 0){
+        errno = EFAULT;
+        return -1;
+    }
+
+    if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
+        return -1;
+    }
+
+    if((writen(fd_sock, (void *) pathname, sz_p)) == -1){
+        return -1;
+    }
+
+    /*** receiving the response to the 'open File' request to the server ***/
+
+    result = -1;
+    if((readn(fd_sock, (void *) &result, sizeof(int))) == -1){
+        return -1;
+    }
+
+    if(result == FAILED_O){
+        char* reason = NULL;
+        size_t sz_r = 0;
+        if((readn(fd_sock, (void *) &sz_r, sizeof(size_t))) == -1){
+            return -1;
+        }
+
+        reason = (char *) malloc(sz_r * sizeof(char));
+        memset(reason, '\0', sz_r);
+        if((readn(fd_sock, (void *) reason, sz_r)) == -1){
+            return -1;
+        }
+
         #ifdef PRINT_REASON
             fprintf(stderr, "Information: open file operation failed, reason: %s\n", reason);
         #endif
+
+        free(reason);
         errno = EACCES;
         return -1;
     }
@@ -230,43 +291,86 @@ int readFile( const char* pathname, void** buf, size_t* size ){
         return -1;
     }
 
-    if( write_request_RF(fd_sock ,pathname) == -1 ){
-        buf = NULL;
-        *size = 0;
+    operation = _RF_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
         return -1;
     }
 
-    int resp;
-    char* reason = NULL;
-    if( read_response_RF(fd_sock, &resp, (char**) buf, size, reason) == -1){
-        if(*buf) free(*buf);
+    /************* sending the 'readFile' request to the server ************/
+    size_t sz_p = sizeof(pathname);
+    if(sz_p <= 0){
+        buf = NULL;
+        *size = 0;
+        errno = EFAULT;
+        return -1;
+    }
+
+    if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
         *buf = NULL;
         *size = 0;
         return -1;
     }
 
-    switch(resp){
-        case FAILED_O:{
-            #ifdef PRINT_REASON
-                if(reason != NULL){
-                    fprintf(stdout, "failure to read file '%s': %s\n", pathname, reason);
-                }
-            #endif
-            // errno da settare qua
+    if((writen(fd_sock, (void *) pathname, sz_p)) == -1){
+        *buf = NULL;
+        *size = 0;
+        return -1;
+    }
+
+    /***** receiving the response to the 'readFile' request to the server *****/
+    result = -1;
+
+    if((readn(fd_sock, &result, sizeof(int))) == -1){
+        *buf = NULL;
+        *size = 0;
+        return -1;
+    }
+    if(result == SUCCESS_O){
+        if((readn(fd_sock, (void *) size, sizeof(size_t))) == -1){
+            *buf = NULL;
+            *size = 0;
             return -1;
         }
-        case SUCCESS_O:{
-            break;
+
+        *buf = malloc(*size);
+        memset(*buf, '\0', *size);
+        if((readn(fd_sock, (void *) *buf, *size)) == -1){
+            *buf = NULL;
+            *size = 0;
+            return -1;
         }
-        default:{
-            break;
+
+        fprintf(stdout, "contents of file '%s' read from server: '%s'\n", pathname, (char*) *buf);
+    }else{
+        *buf = NULL;
+        *size = 0;
+        char* reason = NULL;
+        size_t sz_r = 0;
+        if((readn(fd_sock, (void *) &sz_r, sizeof(size_t))) == -1){
+            return -1;
         }
+
+        reason = (char *) malloc(sz_r * sizeof(char));
+        memset(reason, '\0', sz_r);
+        if((readn(fd_sock, (void *) reason, sz_r)) == -1){
+            return -1;
+        }
+
+        #ifdef PRINT_REASON
+            if(reason != NULL){
+                fprintf(stdout, "failure to read file '%s': %s\n", pathname, reason);
+            }
+        #endif
     }
 
     return 0;
 }
 
 int readNFile( int N, const char* dirname ){
+    /* sending the 'readNFile' request to the server */
+    /* receiving the response to the 'readNFile' request to the server */
     return 0;
 }
 
@@ -276,51 +380,105 @@ int writeFile( const char* pathname, const char* dirname ){
         return -1;
     }
 
-    char *str = NULL;
-    size_t* sz_d = NULL;
-    if(read_file(pathname, str, sz_d, 0) <= 0){
+    char *data = NULL;
+    size_t sz_d = 0;
+    if(read_file(pathname, data, &sz_d, O_RDONLY) <= 0){
 
     }
 
-    if(write_request_WF_ATF(fd_sock, _WF_O, pathname, str, *sz_d) == -1){
+    operation = _WF_O;
 
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
     }
 
-    int* result     = NULL;
-    char* reason    = NULL;
-    char** path_r    = NULL;
-    char** data_r    = NULL;
-    size_t* sz_pr   = NULL;
-    size_t* sz_dr   = NULL;
-    int N = 0;
-    if(read_response_WF_ATF(fd_sock, result, reason, &N, path_r, sz_pr, data_r, sz_dr) == -1){
-        switch(*result){
-            case FAILED_O:{
-                #ifdef PRINT_REASON
-                    if(reason != NULL){
-                        fprintf(stdout, "failure to write file '%s': %s\n", pathname, reason);
-                    }
-                #endif
-                // errno da settare qua
-                return -1;
-            }
-            case SUCCESS_O:{
-                if(N > 0){
-                    for(int i=0; i<N; i++){
-                        char* p = getNameFile(path_r[i]);
-                        char* f = (char *) malloc(STR_LEN * sizeof(char));
-                        memset(f, '\0', STR_LEN);
-                        strncpy(f, dirname, STR_LEN-1);
-                        strncat(f, "/", 2);
-                        strncat(f, p, STR_LEN);
-                        write_file(f, data_r[i], sz_dr[i]);
-                    }
+    /* sending the 'writeFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(sz_p <= 0){
+        errno = EFAULT;
+        return -1;
+    }
+    if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) pathname, sz_p)) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) &sz_d, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) data, sz_d)) == -1){
+        return -1;
+    }
+
+    /* receiving the response to the 'writeFile' request to the server */
+    result = -1;
+
+    if((readn(fd_sock, (void *) &result, sizeof(int))) == -1){
+        return -1;
+    }
+
+    if(result == SUCCESS_O){
+        int N = 0;
+
+        if((readn(fd_sock, (void *) &N, sizeof(int))) == -1){
+            return -1;
+        }
+        if(N > 0){
+            char* path_r   = NULL;
+            char* data_r   = NULL;
+            size_t sz_pr   = 0;
+            size_t sz_dr   = 0;
+
+            for(int i=0; i<N; i++){
+                if((readn(fd_sock, (void *) &sz_pr, sizeof(size_t))) == -1){
+                    return -1;
                 }
-            }
-            default:{
-                break;
+                path_r = malloc(sz_pr);
+                memset(path_r, '\0', sz_pr);
+                if((readn(fd_sock, (void *) path_r, sz_pr)) == -1){
+                    free(path_r);
+                    return -1;
+                }
+                if((readn(fd_sock, (void *) &sz_dr, sizeof(size_t))) == -1){
+                    free(path_r);
+                    return -1;
+                }
+                data_r = malloc(sz_dr);
+                memset(data_r, '\0', sz_dr);
+                if((readn(fd_sock, (void *) data_r, sz_pr)) == -1){
+                    free(path_r);
+                    free(data_r);
+                    return -1;
+                }
+
+                char* p = getNameFile(path_r);
+                char* f = (char *) malloc(STR_LEN * sizeof(char));
+                memset(f, '\0', STR_LEN);
+                strncpy(f, dirname, STR_LEN-1);
+                strncat(f, "/", 2);
+                strncat(f, p, STR_LEN);
+                write_file(f, data_r, sz_dr);
+                free(path_r);
+                free(data_r);
+                free(p);
+                free(f);
             }
         }
+    }else{
+        char* reason = NULL;
+        size_t sz_r  = 0;
+        if((readn(fd_sock, &sz_r, sizeof(size_t))) == -1){
+            return -1;
+        }
+        #ifdef PRINT_REASON
+            if(reason != NULL){
+                fprintf(stdout, "failure to write file '%s': %s\n", pathname, reason);
+            }
+        #endif
+        // errno da settare qua
+        return -1;
     }
 
     return 0;
@@ -332,29 +490,99 @@ int appendToFile( const char* pathname, void* buf, size_t size, const char* dirn
         return -1;
     }
 
-    char *str = NULL;
-    size_t* sz_d = NULL;
-    if(read_file(pathname, str, sz_d, 0) <= 0){
+    operation = _ATF_O;
 
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
     }
 
-    if(write_request_WF_ATF(fd_sock, _WF_O, pathname, str, *sz_d) == -1){
-
+    /* sending the 'writeFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(sz_p <= 0){
+        errno = EFAULT;
+        return -1;
+    }
+    if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) pathname, sz_p)) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) &size, sizeof(size_t))) == -1){
+        return -1;
+    }
+    if((writen(fd_sock, (void *) buf, size)) == -1){
+        return -1;
     }
 
-    int* result     = NULL;
-    char* reason    = NULL;
-    char** path_r    = NULL;
-    char** data_r    = NULL;
-    size_t* sz_pr   = NULL;
-    size_t* sz_dr   = NULL;
-    int N = 0;
-    if(read_response_WF_ATF(fd_sock, result, reason, &N, path_r, sz_pr, data_r, sz_dr) == -1){
+    /* receiving the response to the 'writeFile' request to the server */
+    result = -1;
 
+    if((readn(fd_sock, (void *) &result, sizeof(int))) == -1){
+        return -1;
     }
 
-    if(*result == SUCCESS_O){
+    if(result == SUCCESS_O){
+        int N = 0;
 
+        if((readn(fd_sock, (void *) &N, sizeof(int))) == -1){
+            return -1;
+        }
+        if(N > 0){
+            char* path_r   = NULL;
+            char* data_r   = NULL;
+            size_t sz_pr   = 0;
+            size_t sz_dr   = 0;
+
+            for(int i=0; i<N; i++){
+                if((readn(fd_sock, (void *) &sz_pr, sizeof(size_t))) == -1){
+                    return -1;
+                }
+                path_r = malloc(sz_pr);
+                memset(path_r, '\0', sz_pr);
+                if((readn(fd_sock, (void *) path_r, sz_pr)) == -1){
+                    free(path_r);
+                    return -1;
+                }
+                if((readn(fd_sock, (void *) &sz_dr, sizeof(size_t))) == -1){
+                    free(path_r);
+                    return -1;
+                }
+                data_r = malloc(sz_dr);
+                memset(data_r, '\0', sz_dr);
+                if((readn(fd_sock, (void *) data_r, sz_pr)) == -1){
+                    free(path_r);
+                    free(data_r);
+                    return -1;
+                }
+
+                char* p = getNameFile(path_r);
+                char* f = (char *) malloc(STR_LEN * sizeof(char));
+                memset(f, '\0', STR_LEN);
+                strncpy(f, dirname, STR_LEN-1);
+                strncat(f, "/", 2);
+                strncat(f, p, STR_LEN);
+                write_file(f, data_r, sz_dr);
+                free(path_r);
+                free(data_r);
+                free(p);
+                free(f);
+            }
+        }
+    }else{
+        char* reason = NULL;
+        size_t sz_r  = 0;
+        if((readn(fd_sock, &sz_r, sizeof(size_t))) == -1){
+            return -1;
+        }
+        #ifdef PRINT_REASON
+            if(reason != NULL){
+                fprintf(stdout, "failure to write file '%s': %s\n", pathname, reason);
+            }
+        #endif
+        // errno da settare qua
+        return -1;
     }
 
     return 0;
@@ -366,14 +594,29 @@ int lockFile( const char* pathname ){
         return -1;
     }
 
-    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+    operation = _LF_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
+    }
+
+    /* sending the 'lockFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
 
-    int* result = NULL;
+    /* receiving the response to the 'lockFile' request from the server */
+    int result = 0;
     char* reason = NULL;
-    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+    if(readn(fd_sock, &result, sizeof(int)) == -1){
 
+    }
+    if(result == FAILED_O){
+        if(read_reason(fd_sock, &reason) == -1){
+
+        }
     }
 
     return 0;
@@ -385,14 +628,29 @@ int unlockFile( const char* pathname ){
         return -1;
     }
 
-    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+    operation = _UF_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
+    }
+
+    /* sending the 'unlockFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
 
-    int* result = NULL;
+    /* receiving the response to the 'unlockFile' request from the server */
+    int result = 0;
     char* reason = NULL;
-    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+    if(readn(fd_sock, &result, sizeof(int)) == -1){
 
+    }
+    if(result == FAILED_O){
+        if(read_reason(fd_sock, &reason) == -1){
+
+        }
     }
 
     return 0;
@@ -404,14 +662,29 @@ int closeFile( const char* pathname ){
         return -1;
     }
 
-    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+    operation = _CF_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
+    }
+
+    /* sending the 'closeFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
 
-    int* result = NULL;
+    /* receiving the response to the 'closeFile' request to the server */
+    int result = 0;
     char* reason = NULL;
-    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+    if(readn(fd_sock, &result, sizeof(int)) == -1){
 
+    }
+    if(result == FAILED_O){
+        if(read_reason(fd_sock, &reason) == -1){
+
+        }
     }
 
     return 0;
@@ -423,14 +696,29 @@ int removeFile( const char* pathname ){
         return -1;
     }
 
-    if(write_request_LF_UF_CF_RFI(fd_sock, _ATF_O, pathname) == -1){
+    operation = _RFI_O;
+
+    // I write the operation to do
+    if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+        return -1;
+    }
+
+    /* sending the 'removeFile' request to the server */
+    size_t sz_p = sizeof(pathname);
+    if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
 
-    int* result = NULL;
+    /* receiving the response to the 'removeFile' request from the server */
+    int result = 0;
     char* reason = NULL;
-    if(read_response_LF_UF_CF_RFI(fd_sock, result, reason) == -1){
+    if(readn(fd_sock, &result, sizeof(int)) == -1){
 
+    }
+    if(result == FAILED_O){
+        if(read_reason(fd_sock, &reason) == -1){
+
+        }
     }
 
     return 0;
