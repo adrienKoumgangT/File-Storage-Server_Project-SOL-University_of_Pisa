@@ -310,9 +310,18 @@ int do_cmd_W( char** args, long n ){
         if(realpath(args[i], path) == NULL){
             fprintf(stderr, "ERROR: invalid pathname '%s'\n", args[i]);
             continue;
+        }else{
+            if(print_operation) fprintf(stdout, "[%ld] written of file '%s' to the server\n", timeToPrint++, path);
         }
         if(openFile(path, O_CREATE_LOCK) == -1){
-
+            switch(errno){
+                case EINVAL:{
+                    break;
+                }
+                case EOPNOTSUPP:{
+                    break;
+                }
+            }
         }else if(writeFile(path, dirname_D) == -1){
 
         }
@@ -681,7 +690,7 @@ int main(int argc, char** argv){
 
     endClient:
         if(print_operation) fprintf(stdout, "[%ld] close the connection with server : '%s'\n", timeToPrint++, sockname);
-        closeConnection(sockname);
+        if(isConnect) closeConnection(sockname);
         finish();
 
     if(!goodEnd) return EXIT_FAILURE;
