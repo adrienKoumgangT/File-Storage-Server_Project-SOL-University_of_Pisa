@@ -58,7 +58,7 @@ static inline void unlockFileAndSignal( file_t* ft ){
     UNLOCK(&ft->flock);
 }
 
- // simple hash function
+// simple hash function
  /**
  *  hash function that computes the hash value given to key
  *
@@ -67,17 +67,23 @@ static inline void unlockFileAndSignal( file_t* ft ){
  * @returns : -1 if not valid key
  *              hash value it is valid key
  */
- unsigned int hash_function_for_file_t(char* key){
-     char *str_key = (char *) key;
-     if(!str_key)
+unsigned int hash_function_for_file_t(char* key){
+    if(!key)
         return -1;
+
+    size_t len = strlen(key)+1;
+    if(len <= 1)
+        return -1;
+    char *str_key = (char *) malloc(len * sizeof(char));
+    memset(str_key, '\0', len);
+    strncpy(str_key, key, len);
 
     unsigned int key_value = 0;
     for(int i=0; str_key[i] != '\0'; i++)
         key_value += (unsigned int) str_key[i];
-
+    free(str_key);
     return key_value;
- }
+}
 
  // compare function
  /**
@@ -100,19 +106,64 @@ static inline void unlockFileAndSignal( file_t* ft ){
 */
  void file_print(file_t* f){
      if(f){
-         fprintf(stdout, "%s  %ld  %s", f->key, f->size_data, f->data);
+         fprintf(stdout, "%s  %ld  %s", f->key, f->size_data, (char *)f->data);
      }
  }
 
- void file_free(file_t* f){
-     if(f){
-         if(f->key) free(f->key);
-         if(f->data) free(f->data);
-         pthread_mutex_destroy(&(f->flock));
-         pthread_cond_destroy(&(f->fcond));
-         free(f);
-     }
- }
+file_t* file_create( char* key, size_t size_key, void* data, size_t size_data, int fd ){
+    if(!key) return NULL;
+
+    file_t* new_file = (file_t *) malloc(sizeof(file_t));
+    if(!new_file) return NULL;
+    new_file->key       = key;
+    new_file->size_key  = size_key;
+    new_file->data      = data;
+    new_file->size_data = size_data;
+    new_file->log       = -1;
+    new_file->next      = NULL;
+    FD_ZERO(&new_file->set);
+    FD_SET(fd, &new_file->set);
+    pthread_mutex_init(&new_file->flock, NULL);
+    pthread_cond_init(&new_file->fcond, NULL);
+    return new_file;
+}
+
+void file_free(file_t* f){
+    if(f){
+        if(f->key) free(f->key);
+        if(f->data) free(f->data);
+        pthread_mutex_destroy(&(f->flock));
+        pthread_cond_destroy(&(f->fcond));
+        free(f);
+    }
+}
+
+file_t* file_update_data(file_t* ft, void* data, size_t size_data ){
+    if(!ft || !data) return NULL;
+
+    file_t* new_file = (file_t *) malloc(sizeof(file_t));
+    if(!new_file) return NULL;
+
+
+    if(ft->data == NULL){
+        new_file->data = data;
+    }else{
+        new_file->data = malloc(ft->size_data + size_data + 1);
+        if( sprintf(new_file->data, "%s%s", (char *)ft->data, (char *)data) < 0) return NULL;
+        free(data);
+    }
+
+    new_file->key       = ft->key;
+    new_file->size_key  = ft->size_key;
+    new_file->size_data = size_data;
+    new_file->set       = ft->set;
+    new_file->log       = ft->log;
+    new_file->next      = ft->next;
+    pthread_mutex_init(&new_file->flock, NULL);
+    pthread_cond_init(&new_file->fcond, NULL);
+
+    return new_file;
+}
 
 int file_take_lock( file_t* ft, int fd_lock ){
     if(fd_lock <= 0) return -1;
@@ -146,38 +197,44 @@ int file_has_lock( file_t* ft, int fd ){
     return r;
 }
 
-int file_read_content( file_t * ft, char* content, size_t* size_content ){
+int file_read_content( file_t * ft, void* content, size_t* size_content ){
     lockFile(ft);
     if(content) free(content);
-    content = (char *) malloc((ft->size_data+1) * sizeof(char));
-    memset(content, '\0', ft->size_data+1);
-    strncpy(content, ft->data, ft->size_data);
+    content =  malloc(ft->size_data+1);
+    //memset(content, '\0', ft->size_data+1);
+    //strncpy(content, (char *)ft->data, ft->size_data);
+    memset(content, '0', ft->size_data);
+    if( sprintf(content, "%s", (char *)ft->data) < 0) return -1;
     *size_content = ft->size_data;
     unlockFileAndSignal(ft);
     return 0;
 }
 
-int file_write_content( file_t* ft, char* content, size_t size_content ){
+int file_write_content( file_t* ft, void* content, size_t size_content ){
     if(!content || size_content <= 0) return -1;
 
     lockFile(ft);
     if(ft->data) free(ft->data);
-    ft->data = (char*) malloc((size_content+1) * sizeof(char));
-    memset(ft->data, '\0', size_content+1);
-    strncpy(ft->data, content, size_content);
+    ft->data = malloc(size_content+1);
+    //memset(ft->data, '\0', size_content+1);
+    //strncpy(ft->data, content, size_content);
+    memset(ft->data, '0', size_content+1);
     ft->size_data = size_content;
+    if( sprintf(ft->data, "%s", (char *)content) < 0) return -1;
     unlockFileAndSignal(ft);
     return 0;
 }
 
-int file_append_content( file_t* ft, char* content, size_t size_content ){
+int file_append_content( file_t* ft, void* content, size_t size_content ){
     if(!content || size_content <= 0) return -1;
 
     lockFile(ft);
-    if(ft->data) free(ft->data);
-    ft->data = (char*) realloc(ft->data, (ft->size_data + size_content+1) * sizeof(char));
-    strncat(ft->data, content, size_content);
+    void* p = ft->data;
+    ft->data = malloc(ft->size_data + size_content+1);
+    //strncat(ft->data, content, size_content);
+    if( sprintf(ft->data, "%s%s", (char *)p, (char *)content) < 0) return -1;
     ft->size_data += size_content;
+    free(p);
     unlockFileAndSignal(ft);
     return 0;
 }

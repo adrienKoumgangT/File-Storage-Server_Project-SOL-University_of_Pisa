@@ -54,7 +54,7 @@
  typedef struct _file_t { // TODO: da completare sugli altri file
  	char*                   key;
     size_t                  size_key;
- 	char*                   data;
+ 	void*                   data;
     size_t                  size_data;
     fd_set                  set;
     int                     log;
@@ -73,8 +73,14 @@
  // print file
  void file_print(file_t *);
 
+// create file
+file_t* file_create( char*, size_t, void*, size_t, int );
+
 // free file
 void file_free( file_t *);
+
+// update data file
+file_t* file_update_data( file_t*, void*, size_t );
 
 // take lock
 int file_take_lock( file_t*, int  );
@@ -86,13 +92,13 @@ int file_leave_lock( file_t*, int );
 int file_has_lock( file_t*, int );
 
 // read the contents of a file
-int file_read_content( file_t *, char*, size_t* );
+int file_read_content( file_t *, void*, size_t* );
 
 // write the contents of a file
-int file_write_content( file_t*, char*, size_t );
+int file_write_content( file_t*, void*, size_t );
 
 // append to the contents of a file
-int file_append_content( file_t*, char*, size_t );
+int file_append_content( file_t*, void*, size_t );
 
 //
 void file_add_fd( file_t*, int );
