@@ -43,11 +43,43 @@
 
  #include "my_hash.h"
  #include "my_file.h"
+ #include "utils.h"
 
+/* for hash_t */
+static inline void lockHash( hash_t* ht ){
+    LOCK(&ht->hlock);
+}
 
+static inline void unlockHash( hash_t* ht ){
+    UNLOCK(&ht->hlock);
+}
 
-static pthread_mutex_t *hlock;
-static pthread_cond_t *hcond;
+static inline void unlockHashAndWait( hash_t* ht ){
+    WAIT(&ht->hcond, &ht->hlock);
+}
+
+static inline void unlockHashAndSignal( hash_t* ht ){
+    SIGNAL(&ht->hcond);
+    UNLOCK(&ht->hlock);
+}
+
+/* for node_h */
+static inline void lockNodeHash( node_h* nh ){
+    LOCK(&nh->nhlock);
+}
+
+static inline void unlockNodeHash( node_h* nh ){
+    UNLOCK(&nh->nhlock);
+}
+
+static inline void unlockNodeHashAndWait( node_h* nh ){
+    WAIT(&nh->nhcond, &nh->nhlock);
+}
+
+static inline void unlockNodeHashAndSignal( node_h* nh ){
+    SIGNAL(&nh->nhcond);
+    UNLOCK(&nh->nhlock);
+}
 
 
 /**
@@ -73,23 +105,32 @@ hash_t* hash_create( const int size, unsigned int (*hash_function)(char *),
      ht = (hash_t *) malloc(sizeof(hash_t));
      if(!ht)
          return NULL;
-
+     memset(ht, '\0', sizeof(hash_t));
      ht->size = size;
      ht->number_of_item = 0;
-     ht->table = (data_hash_t **) malloc(size * sizeof(data_hash_t *));
+     ht->table = (node_h **) malloc(size * sizeof( node_h* ));
      if(!ht->table)
          return NULL;
-    hlock = (pthread_mutex_t *) malloc(size * sizeof(pthread_mutex_t));
-    hcond = (pthread_cond_t *) malloc(size * sizeof(pthread_cond_t));
+    if(pthread_mutex_init(&(ht->hlock), NULL) != 0){
+        perror("pthread_mutex_init");
+        return NULL;
+    }
+    if(pthread_cond_init(&(ht->hcond), NULL) != 0){
+        perror("pthread_cond_init");
+        pthread_mutex_destroy(&ht->hlock);
+        return NULL;
+    }
     for(i=0; i<ht->size; i++){
-        ht->table[i] = NULL;
-        if(pthread_mutex_init(&hlock[i], NULL) != 0){
+        ht->table[i] = (node_h *) malloc(sizeof(node_h));
+        ht->table[i]->n = 0;
+        ht->table[i]->list = NULL;
+        if(pthread_mutex_init(&(ht->table[i]->nhlock), NULL) != 0){
             perror("pthread_mutex_init");
             return NULL;
         }
-        if(pthread_cond_init(&hcond[i], NULL) != 0){
+        if(pthread_cond_init(&(ht->table[i]->nhcond), NULL) != 0){
             perror("pthread_cond_init");
-            pthread_mutex_destroy(&hlock[i]);
+            pthread_mutex_destroy(&(ht->table[i]->nhlock));
             return NULL;
         }
     }
@@ -113,21 +154,27 @@ data_hash_t* hash_find( const hash_t* ht, char* key ){
       if(!ht || !key)
          return NULL;
 
-     data_hash_t *ptr;
+     node_h *ptr_n;
+     data_hash_t* ptr;
      unsigned int key_hash;
 
      key_hash = (* ht->hash_function)(key) % ht->size;
 
-     pthread_mutex_lock(&hlock[key_hash]);
-     ptr = ht->table[key_hash];
+     ptr_n = ht->table[key_hash];
+     lockNodeHash(ptr_n);
+     if(ptr_n->n <= 0){
+         unlockNodeHash(ptr_n);
+         return NULL;
+     }
+     ptr = ptr_n->list;
      while(ptr != NULL){
         if(ht->hash_key_compare(ptr->key, key)){
-            pthread_mutex_unlock(&hlock[key_hash]);
+            unlockNodeHash(ptr_n);
             return ptr;
         }
          ptr = ptr->next;
      }
-     pthread_mutex_unlock(&hlock[key_hash]);
+     unlockNodeHash(ptr_n);
 
      return NULL;
   }
@@ -144,12 +191,8 @@ data_hash_t* hash_find( const hash_t* ht, char* key ){
  *
  * @exceptions : if one of the given parameters is NULL it returns NULL
  */
-
-/**
-*
-*/
-data_hash_t* hash_insert( hash_t* ht, char* key, char* data, int fd ){
-      if(!ht || !key || !data)
+data_hash_t* hash_insert( hash_t* ht, char* key, size_t size_key, void* data, size_t size_data, int fd ){
+      if(!ht || !key)
          return NULL;
 
      unsigned int key_hash;
@@ -157,32 +200,35 @@ data_hash_t* hash_insert( hash_t* ht, char* key, char* data, int fd ){
      key_hash = (* ht->hash_function)(key) % ht->size;
  fprintf(stdout, "key = %s and hash_key = %d\n", key, key_hash);
 
-    pthread_mutex_lock(&hlock[key_hash]);
+    node_h* ptr_n = ht->table[key_hash];
+    lockNodeHash(ptr_n);
      // check if the data is already present in the table
-     for(data_hash_t *ptr=ht->table[key_hash]; ptr != NULL; ptr=ptr->next)
-         if(ht->hash_key_compare(ptr->key, key)){
-             pthread_mutex_unlock(&hlock[key_hash]);
-             return NULL;
+     data_hash_t *ptr = NULL;
+     if(ptr_n->n > 0){
+         ptr = ptr_n->list;
+         while( ptr != NULL ){
+             if(ht->hash_key_compare(ptr->key, key)){
+                 unlockNodeHash(ptr_n);
+                 return NULL;
+             }
+             ptr=ptr->next;
          }
+    }
 
      // if data was not found, add at start
-     data_hash_t* new_item = (data_hash_t *) malloc(sizeof(data_hash_t));
-     if(!new_item){
-         pthread_mutex_unlock(&hlock[key_hash]);
-         return NULL;
-     }
-
-    new_item->next = ht->table[key_hash];
-    new_item->key = key;
-    new_item->size_key = sizeof(key);
-    new_item->data = data;
-    new_item->size_data = sizeof(data);
-    new_item->log = -1;
-    FD_ZERO(&new_item->set);
-    FD_SET(fd, &new_item->set);
-    ht->table[key_hash] = new_item;
+    data_hash_t* new_item = file_create(key, size_key, data, size_data, fd);
+    if(new_item == NULL){
+        unlockNodeHash(ptr_n);
+        return NULL;
+    }
+    new_item->next = ptr_n->list;
+    ptr_n->list = new_item;
+    ptr_n->n++;
+    unlockNodeHash(ptr_n);
+    lockHash(ht);
     ht->number_of_item++;
-    pthread_mutex_unlock(&hlock[key_hash]);
+    unlockHash(ht);
+
     return new_item;
 }
 
@@ -197,23 +243,24 @@ data_hash_t* hash_insert( hash_t* ht, char* key, char* data, int fd ){
  *
  * @exceptions : if one of the given parameters is NULL it returns NULL
  */
-data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, char* data, size_t size_data ){
+data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, void* data, size_t size_data, int fd ){
       if(!ht || !data)
          return NULL;
 
-      data_hash_t *curr, *prev;
+      data_hash_t *curr = NULL, *prev = NULL;
       data_hash_t *old_data = NULL;
       unsigned int key_hash;
 
       key_hash = (* ht->hash_function)(key) % ht->size;
 
-      pthread_mutex_lock(&hlock[key_hash]);
+      node_h* ptr_n = ht->table[key_hash];
+      lockNodeHash(ptr_n);
       // I look for the value to replace
-      for(prev=NULL, curr=ht->table[key_hash]; curr!=NULL; prev=curr, curr=curr->next)
+      for(prev=NULL, curr=ptr_n->list; curr!=NULL; prev=curr, curr=curr->next)
          if(ht->hash_key_compare(curr->key, key)){
 
              if(prev == NULL) // if the item searched for at the top of the list
-                 ht->table[key_hash] = curr->next;
+                 ptr_n->list = curr->next;
              else
                  prev->next = curr->next;
 
@@ -221,19 +268,26 @@ data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, char* d
              curr = NULL;
          }
 
-     data_hash_t *new_item = (data_hash_t *) malloc(sizeof(data_hash_t));
-     new_item->key = key;
-     new_item->size_key = size_key;
-     new_item->data = data;
-     new_item->size_data = size_data;
-     new_item->log = -1;
-     if(old_data) new_item->set = old_data->set;
-     new_item->next = ht->table[key_hash];
-     ht->table[key_hash] = new_item;
-     pthread_mutex_unlock(&hlock[key_hash]);
+    data_hash_t* new_item = NULL;
+    if(old_data == NULL){
+        new_item = file_create(key, size_key, data, size_data, fd);
+        ptr_n->n++;
+    }else{
+        new_item = file_update_data(old_data, data, size_data);
+        old_data->next = NULL;
+    }
 
-     return old_data;
-  }
+    new_item->next = ptr_n->list;
+    ptr_n->list = new_item;
+    unlockNodeHash(ptr_n);
+    if(!old_data){
+        lockHash(ht);
+        ht->number_of_item++;
+        unlockHash(ht);
+    }
+
+    return old_data;
+}
 
 /**
   * Searches for a specific item in the hash table
@@ -244,26 +298,27 @@ data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, char* d
   * @returns : - pointer to the data corresponding to the key.
   *            - If the key was not found, return NULL.
   */
-data_hash_t* hash_update_cat( const hash_t* ht, char* key, size_t size_key, char* data, size_t size_data ){
+data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size_key, void* data, size_t size_data ){
     if(!ht || !key || !data)
         return NULL;
 
-     data_hash_t *ptr;
+     data_hash_t *ptr = NULL;
      unsigned int key_hash;
 
      key_hash = (* ht->hash_function)(key) % ht->size;
 
-     pthread_mutex_lock(&hlock[key_hash]);
-     ptr = ht->table[key_hash];
+     node_h* ptr_n = ht->table[key_hash];
+     lockNodeHash(ptr_n);
+     ptr = ptr_n->list;
      while(ptr != NULL){
         if(ht->hash_key_compare(ptr->key, key)){
             file_append_content(ptr, data, size_data);
-            pthread_mutex_unlock(&hlock[key_hash]);
+            unlockNodeHash(ptr_n);
             return ptr;
          }
         ptr = ptr->next;
     }
-    pthread_mutex_unlock(&hlock[key_hash]);
+    unlockNodeHash(ptr_n);
 
     return NULL;
 }
@@ -280,39 +335,42 @@ data_hash_t* hash_update_cat( const hash_t* ht, char* key, size_t size_key, char
  * @exceptions : if one of the given parameters is NULL it returns NULL
  */
 data_hash_t* hash_remove( hash_t* ht, char* key ){
-      if(!ht || !key)
+     if(!ht || !key)
+        return NULL;
+
+    data_hash_t *curr, *prev;
+    unsigned int key_hash;
+
+    key_hash = (* ht->hash_function)(key) % ht->size;
+
+    if(ht->table[key_hash] == NULL)
          return NULL;
 
-     data_hash_t *curr, *prev;
-     unsigned int key_hash;
+    // I look for the element with key key
+    node_h* ptr_n = ht->table[key_hash];
+    lockNodeHash(ptr_n);
+    prev=NULL;
+    curr=ptr_n->list;
+    while( curr!=NULL ){
+        if(ht->hash_key_compare(curr->key, key)){
+            if(prev == NULL)
+                ptr_n->list = curr->next;
+            else
+                prev->next = curr->next;
 
-     key_hash = (* ht->hash_function)(key) % ht->size;
-
-     if(ht->table[key_hash] == NULL)
-         return NULL;
-
-     // I look for the element with key key
-     prev=NULL;
-     curr=ht->table[key_hash];
-     pthread_mutex_lock(&hlock[key_hash]);
-     while( curr!=NULL ){
-         if(ht->hash_key_compare(curr->key, key)){
-             if(prev == NULL)
-                 ht->table[key_hash] = curr->next;
-             else
-                 prev->next = curr->next;
-
-            pthread_mutex_unlock(&hlock[key_hash]);
+            ptr_n->n--;
+            unlockNodeHash(ptr_n);
+            lockHash(ht);
             ht->number_of_item--;
+            unlockHash(ht);
             return curr;
-             //curr = NULL;
-         }
+        }
 
-         prev=curr;
-         curr=curr->next;
-     }
-     pthread_mutex_unlock(&hlock[key_hash]);
-     return NULL;
+        prev=curr;
+        curr=curr->next;
+    }
+    unlockNodeHash(ptr_n);
+    return NULL;
 }
 
 /**
@@ -325,35 +383,39 @@ data_hash_t* hash_remove( hash_t* ht, char* key ){
  *            - -1 on failure
  */
 int hash_delete( hash_t* ht, char *key ){
-      if(!ht || !key)
-         return -1;
+     if(!ht || !key)
+        return -1;
 
-     data_hash_t *curr, *prev;
-     unsigned int key_hash;
+    data_hash_t *curr = NULL, *prev = NULL;
+    unsigned int key_hash = -1;
 
-     key_hash = (* ht->hash_function)(key) % ht->size;
+    key_hash = (* ht->hash_function)(key) % ht->size;
 
-     prev = NULL;
-     curr=ht->table[key_hash];
-     pthread_mutex_unlock(&hlock[key_hash]);
-     while( curr!=NULL ){
-         if(ht->hash_key_compare(curr->key, key)){
-             if(prev == NULL){
-                 ht->table[key_hash] = curr->next;
-             }else{
-                 prev->next = curr->next;
-             }
-             pthread_mutex_unlock(&hlock[key_hash]);
-             file_free(curr);
-             ht->number_of_item--;
-             return 0;
-         }
-         prev = curr;
-         curr = curr->next;
-     }
-     pthread_mutex_unlock(&hlock[key_hash]);
+    node_h* ptr_n = ht->table[key_hash];
+    lockNodeHash(ptr_n);
+    prev = NULL;
+    curr=ptr_n->list;
+    while( curr!=NULL ){
+        if(ht->hash_key_compare(curr->key, key)){
+            if(prev == NULL){
+                ptr_n->list = curr->next;
+            }else{
+                prev->next = curr->next;
+            }
+            ptr_n->n--;
+            unlockNodeHash(ptr_n);
+            lockHash(ht);
+            ht->number_of_item--;
+            unlockHash(ht);
+            file_free(curr);
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    unlockNodeHash(ptr_n);
 
-     return -1;
+    return -1;
   }
 
 /**
@@ -365,23 +427,34 @@ int hash_delete( hash_t* ht, char *key ){
 *           - -1 on failure
 */
 int hash_destroy( hash_t* ht ){
-     if(!ht)
+    if(!ht)
         return -1;
 
-     data_hash_t *ptr_list, *curr, *next;
+    node_h* ptr_n = NULL;
+    data_hash_t *ptr_list, *curr, *next;
 
-     // deletion of the key and the content of each element in the table
-     for(int i=0; i<ht->size; i++){
-         ptr_list = ht->table[i];
-         for(curr=ptr_list; curr!=NULL;){
-             next = curr->next;
-             file_free(curr);
-             curr = next;
-         }
-     }
-
-     free(ht->table);
-     free(ht);
+    lockHash(ht);
+    // deletion of the key and the content of each element in the table
+    for(int i=0; i<ht->size; i++){
+        ptr_n = ht->table[i];
+        lockNodeHash(ptr_n);
+        ptr_list = ptr_n->list;
+        for(curr=ptr_list; curr!=NULL;){
+            next = curr->next;
+            file_free(curr);
+            curr = next;
+        }
+        ptr_n->n = 0;
+        unlockNodeHash(ptr_n);
+        pthread_mutex_destroy(&ptr_n->nhlock);
+        pthread_cond_destroy(&ptr_n->nhcond);
+        free(ptr_n);
+    }
+    unlockHash(ht);
+    pthread_mutex_destroy(&ht->hlock);
+    pthread_cond_destroy(&ht->hcond);
+    free(ht->table);
+    free(ht);
 
      return 0;
  }

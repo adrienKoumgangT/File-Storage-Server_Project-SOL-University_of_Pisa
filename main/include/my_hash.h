@@ -47,11 +47,20 @@
  // definition of element to be inserted in the hash table
  typedef struct _file_t data_hash_t;
 
+typedef struct _node_h{
+    long n;
+    pthread_mutex_t nhlock;
+    pthread_cond_t nhcond;
+    data_hash_t* list;
+} node_h;
+
  /* the structure of hash table */
  typedef struct _hash_t {
  	int size;
  	int number_of_item;
- 	data_hash_t **table;
+ 	node_h **table;
+    pthread_mutex_t hlock;
+    pthread_cond_t hcond;
  	unsigned int (*hash_function)(char *);
  	int (*hash_key_compare)(char *, char *);
  } hash_t;
@@ -62,11 +71,11 @@ hash_t* hash_create( const int, unsigned int (*hash_function)(char *),
 
 data_hash_t* hash_find( const hash_t*, char* );
 
-data_hash_t* hash_insert( hash_t*, char*, char*, int );
+data_hash_t* hash_insert( hash_t*, char*, size_t, void*, size_t, int );
 
-data_hash_t* hash_update_insert( hash_t*, char*, size_t, char*, size_t );
+data_hash_t* hash_update_insert( hash_t*, char*, size_t, void*, size_t, int );
 
-data_hash_t* hash_update_cat( const hash_t*, char*, size_t, char*, size_t );
+data_hash_t* hash_update_insert_append( const hash_t*, char*, size_t, void*, size_t );
 
 data_hash_t* hash_remove( hash_t*, char* );
 
