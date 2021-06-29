@@ -66,6 +66,8 @@
 #include "read_write_file.h"
 #include "utils.h"
 
+#define PRINT_OPERATION
+#define PRINT_INFORMATION
 #define PRINT_REASON
 
 static int fd_sock;
@@ -124,7 +126,7 @@ int openConnection( const char* sockname, int msec,
         nanosleep(&time_sleep, &time_request);
 
         if(clock_gettime(CLOCK_REALTIME, &current_time) == -1){
-            #ifdef PRINT_REASON
+            #ifdef PRINT_INFORMATION
                 fprintf(stderr, "Information: open connection operation failed, reason: problem in calculating the current time (clock_gettime)\n");
             #endif
             return -1;
@@ -133,7 +135,7 @@ int openConnection( const char* sockname, int msec,
     }while(current_time.tv_sec < abstime.tv_sec ||
         current_time.tv_nsec < abstime.tv_nsec);
 
-    #ifdef PRINT_REASON
+    #ifdef PRINT_INFORMATION
         fprintf(stderr, "Information: open connection operation failed, reason: connection test time passed\n");
     #endif
     errno =  ETIME;
@@ -153,7 +155,7 @@ int openConnection( const char* sockname, int msec,
 */
 int closeConnection( const char* sockname ){
     if(!sockname){
-        #ifdef PRINT_REASON
+        #ifdef PRINT_INFORMATION
             fprintf(stderr, "Information: close connection operation failed, reason: wrong socket name\n");
         #endif
         errno = EINVAL;
@@ -163,7 +165,7 @@ int closeConnection( const char* sockname ){
     if(strncmp(serv_addr.sun_path, sockname, strlen(sockname)+1) ==  0){
         return close(fd_sock);
     }else{
-        #ifdef PRINT_REASON
+        #ifdef PRINT_INFORMATION
             fprintf(stderr, "Information: close connection operation failed, reason: wrong socket name\n");
         #endif
         errno = EFAULT;
@@ -192,25 +194,25 @@ int openFile( const char* pathname, int flags ){
 
     switch( flags ){
         case O_CREATE:{
-            #ifdef PRINT_REASON
+            #ifdef PRINT_INFORMATION
                 fprintf(stdout, "Information: open file operation with flag 'O_CREATE'\n");
             #endif
             break;
         }
         case O_LOCK:{
-            #ifdef PRINT_REASON
+            #ifdef PRINT_INFORMATION
                 fprintf(stdout, "Information: open file operation with flag 'O_LOCK'\n");
             #endif
             break;
         }
         case O_CREATE_LOCK:{
-            #ifdef PRINT_REASON
+            #ifdef PRINT_INFORMATION
                 fprintf(stdout, "Information: open file operation with flag 'O_CREATE_LOCK'\n");
             #endif
             break;
         }
         default:{
-            #ifdef PRINT_REASON
+            #ifdef PRINT_INFORMATION
                 fprintf(stderr, "Information: open file operation failed, reason: invalid opening flag (%d)\n", flags);
             #endif
             errno = EOPNOTSUPP;
@@ -218,8 +220,8 @@ int openFile( const char* pathname, int flags ){
         }
     }
 
-    int len_pathname = strlen(pathname);
-    if(len_pathname <= 0){
+    size_t sz_p = strlen(pathname)+1;
+    if(sz_p <= 1){
         errno = EINVAL;
         return -1;
     }
@@ -238,7 +240,6 @@ int openFile( const char* pathname, int flags ){
         return -1;
     }
 
-    size_t sz_p = sizeof(pathname);
     if(sz_p <= 0){
         errno = EFAULT;
         return -1;
@@ -266,7 +267,7 @@ int openFile( const char* pathname, int flags ){
             return -1;
         }
 
-        reason = (char *) malloc(sz_r * sizeof(char));
+        reason = (char *) malloc(sz_r);
         memset(reason, '\0', sz_r);
         if((readn(fd_sock, (void *) reason, sz_r)) == -1){
             return -1;
@@ -299,8 +300,8 @@ int readFile( const char* pathname, void** buf, size_t* size ){
     }
 
     /************* sending the 'readFile' request to the server ************/
-    size_t sz_p = sizeof(pathname);
-    if(sz_p <= 0){
+    size_t sz_p = strlen(pathname)+1;
+    if(sz_p <= 1){
         buf = NULL;
         *size = 0;
         errno = EFAULT;
@@ -352,7 +353,7 @@ int readFile( const char* pathname, void** buf, size_t* size ){
             return -1;
         }
 
-        reason = (char *) malloc(sz_r * sizeof(char));
+        reason = (char *) malloc(sz_r);
         memset(reason, '\0', sz_r);
         if((readn(fd_sock, (void *) reason, sz_r)) == -1){
             return -1;
@@ -380,10 +381,19 @@ int writeFile( const char* pathname, const char* dirname ){
         return -1;
     }
 
+    size_t sz_p = strlen(pathname)+1;
+    if(sz_p <= 1){
+        errno = EFAULT;
+        return -1;
+    }
     char *data = NULL;
     size_t sz_d = 0;
-    if(read_file(pathname, data, &sz_d, O_RDONLY) <= 0){
+    if(read_file(pathname, (void **) &data, &sz_d, O_RDONLY) <= 0){
+        return -1;
+    }
 
+    if(sz_d <= 0){
+        return -1;
     }
 
     operation = _WF_O;
@@ -394,23 +404,28 @@ int writeFile( const char* pathname, const char* dirname ){
     }
 
     /* sending the 'writeFile' request to the server */
-    size_t sz_p = sizeof(pathname);
-    if(sz_p <= 0){
-        errno = EFAULT;
+    if((write_pathname(fd_sock, (void *) pathname, sz_p)) == -1){
         return -1;
     }
-    if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
+    /*if((writen(fd_sock, (void *) &sz_p, sizeof(size_t))) == -1){
         return -1;
     }
     if((writen(fd_sock, (void *) pathname, sz_p)) == -1){
         return -1;
+    }*/
+
+    if((write_data(fd_sock, (void *) data, sz_d)) == -1){
+        return -1;
     }
-    if((writen(fd_sock, (void *) &sz_d, sizeof(size_t))) == -1){
+
+    /*if((writen(fd_sock, (void *) &sz_d, sizeof(size_t))) == -1){
         return -1;
     }
     if((writen(fd_sock, (void *) data, sz_d)) == -1){
         return -1;
-    }
+    }*/
+
+    if(data) free(data);
 
     /* receiving the response to the 'writeFile' request to the server */
     result = -1;
@@ -498,8 +513,8 @@ int appendToFile( const char* pathname, void* buf, size_t size, const char* dirn
     }
 
     /* sending the 'writeFile' request to the server */
-    size_t sz_p = sizeof(pathname);
-    if(sz_p <= 0){
+    size_t sz_p = strlen(pathname)+1;
+    if(sz_p <= 1){
         errno = EFAULT;
         return -1;
     }
@@ -602,7 +617,7 @@ int lockFile( const char* pathname ){
     }
 
     /* sending the 'lockFile' request to the server */
-    size_t sz_p = sizeof(pathname);
+    size_t sz_p = strlen(pathname)+1;
     if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
@@ -636,7 +651,7 @@ int unlockFile( const char* pathname ){
     }
 
     /* sending the 'unlockFile' request to the server */
-    size_t sz_p = sizeof(pathname);
+    size_t sz_p = strlen(pathname)+1;
     if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
@@ -670,7 +685,7 @@ int closeFile( const char* pathname ){
     }
 
     /* sending the 'closeFile' request to the server */
-    size_t sz_p = sizeof(pathname);
+    size_t sz_p = strlen(pathname)+1;
     if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
@@ -704,7 +719,7 @@ int removeFile( const char* pathname ){
     }
 
     /* sending the 'removeFile' request to the server */
-    size_t sz_p = sizeof(pathname);
+    size_t sz_p = strlen(pathname)+1;
     if(write_pathname(fd_sock, pathname, sz_p) == -1){
 
     }
