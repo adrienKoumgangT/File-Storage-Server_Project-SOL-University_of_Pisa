@@ -157,6 +157,8 @@ int connect_to_server( char* sockname ){
         return -1;
     }
 
+    if(socket_name) free(socket_name);
+
     return 0;
 }
 
@@ -376,7 +378,7 @@ int do_cmd_r( char** args, long n ){
         size_t sz;
         if(openFile(path, O_CREATE_LOCK) == -1){
 
-        }else if(readFile(path, (void *) buf_read, &sz) == -1){
+        }else if(readFile(path, (void **) &buf_read, &sz) == -1){
 
         }else{
             char* p = NULL;
