@@ -169,10 +169,11 @@ void backToBegin( void ){
 */
 char* getFirstDdir( void ){
     if(dirnameD[0] == '\0') return NULL;
-
-    char* d = (char *) malloc(STR_LEN* sizeof(char));
-    memset(d, '\0', STR_LEN);
-    strncpy(d, dirnameD, STR_LEN);
+    size_t len = strlen(dirnameD)+1;
+    if(len <= 1) return NULL;
+    char* d = (char *) malloc(len * sizeof(char));
+    memset(d, '\0', len);
+    strncpy(d, dirnameD, len);
     return d;
 }
 
@@ -185,10 +186,11 @@ char* getFirstDdir( void ){
 */
 char* getFirstddir( void ){
     if(dirnamed[0] == '\0') return NULL;
-
-    char* d = (char *) malloc(STR_LEN* sizeof(char));
-    memset(d, '\0', STR_LEN);
-    strncpy(d, dirnamed, STR_LEN);
+    size_t len = strlen(dirnamed)+1;
+    if(len <= 1) return NULL;
+    char* d = (char *) malloc(len * sizeof(char));
+    memset(d, '\0', len);
+    strncpy(d, dirnamed, len);
     return d;
 }
 
@@ -198,13 +200,10 @@ char* getFirstddir( void ){
 int initCmds( int argc, char** argv ){
     if((argc < 2) || (argv == NULL)) return -1;
 
+    int i=0;
     memset(dirnameD, '\0', STR_LEN);
     memset(dirnamed, '\0', STR_LEN);
-
-    int i=0;
-
     for(i=0; i<14; i++) msgError[i] = NULL;
-
     char str_args[STR_LEN];
     int flag_D = 0, flag_w_W = 0;
     int flag_d = 0, flag_r_R = 0;
@@ -590,16 +589,20 @@ int initCmds( int argc, char** argv ){
 }
 
 void finish( void ){
+    int i=0;
     if(listCmds != NULL){
         cmd* aux = NULL;
         while(listCmds != NULL){
             aux = listCmds;
             listCmds = listCmds->next;
+            for(i=0; i<aux->countArgs; i++){
+                if(aux->list_of_arguments[i]) free(aux->list_of_arguments[i]);
+            }
+            if(aux->list_of_arguments) free(aux->list_of_arguments);
             free(aux);
         }
     }
 
-    int i=0;
     for(i=0; i<number_of_errors; i++){
         if(msgError[i]) free(msgError[i]);
     }
