@@ -42,6 +42,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -112,7 +114,8 @@
 
 static unsigned long tempo_dgb = 1;
 
-static int close_server = 0;
+static volatile sig_atomic_t close_server = 0;
+static volatile sig_atomic_t finish_work = 0;
 
 /**
 * Definition of the structure that will have the server configuration data
@@ -187,9 +190,26 @@ static count_elem_t* clients_connected;
 static int canale[2];
 
 /********* cleanup function ****/
-
 void cleanup( void ){
     unlink(settings_server.socket_name);
+}
+
+/**************** incoming signal management function *******************/
+void sigterm( int sign ){
+    switch ( sign ) {
+        case SIGINT:{
+            close_server = 1;
+            break;
+        }
+        case SIGQUIT:{
+            close_server = 1;
+            break;
+        }
+        case SIGHUP:{
+            finish_work = 1;
+            break;
+        }
+    }
 }
 
 /********** *********/
@@ -595,10 +615,11 @@ void* workers( void* args ){
         int reason_error = 0;
         char reason[STR_LEN];
         memset(reason, '\0', STR_LEN);
+        size_t sz = 0;
         switch(operation){
             case _OF_O:{ // if it's an 'open file' request
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : Management of the request to open/create a file\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] : Management of the request to open/create a file\n", tempo_dgb++);
                 #endif
                 int flag = 0;
                 if((err = readn(fd_client_r, (void *) &flag, sizeof(int))) == -1){
@@ -612,23 +633,29 @@ void* workers( void* args ){
                 }
 
                 switch(flag){
-                    case O_CREATE:{
+                    case O_CREATE:
+                    case O_CREATE_LOCK:{
                         // if the 'create' flag has been specified,
                         // the file must not already be present in the db
                         if(hash_find(files_server, pathname) != NULL){
                             reason_error = ERROR_OF_CREATE;
                             resp = FAILED_O;
-                        }
-                        else{
-                            char* ni = (char *) malloc(2 * sizeof(char));
-                            memset(ni, '\0', 2);
-                            while(!hasSpace(2)){
+                        }else{
+                            sz = sz_p;
+                            while(!hasSpace(sz)){
                                 char* pf = NULL;
                                 while((pf = pop_qp(list_files)) == NULL);
-                                if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
-                                else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                                int index = 0;
+                                if(n_fe < MAX_FILES_EJECTED){
+                                    index = n_fe;
+                                    n_fe++;
+                                }else
+                                    index = MAX_FILES_EJECTED;
+                                mf_e[index] = hash_remove(files_server, pf);
+                                sz -= (mf_e[index]->size_key + mf_e[index]->size_data);
                             }
-                            if((mf = hash_insert(files_server, pathname, ni, fd_client_r)) != NULL){
+                            if((mf = hash_insert(files_server, pathname, sz_p, NULL, 0, fd_client_r)) != NULL){
+                                if(flag == O_CREATE_LOCK) file_take_lock(mf, fd_client_r);
                                 resp = SUCCESS_O;
                                 push_qp(list_files, &(mf->key), &(mf->size_key));
                             }
@@ -655,41 +682,13 @@ void* workers( void* args ){
                         }
                         break;
                     }
-                    case O_CREATE_LOCK:{
-                        // if the 'create' flag has been specified,
-                        // the file must not already be present in the db
-                        if(hash_find(files_server, pathname) != NULL){
-                            reason_error = ERROR_OF_CREATE;
-                            resp = FAILED_O;
-                        }
-                        else{
-                            char* ni = (char *) malloc(2 * sizeof(char));
-                            memset(ni, '\0', 2);
-                            while(!hasSpace(2)){
-                                char* pf = NULL;
-                                while((pf = pop_qp(list_files)) == NULL);
-                                if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
-                                else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
-                            }
-                            if((mf = hash_insert(files_server, pathname, ni, fd_client_r)) != NULL){
-                                mf->log = fd_client_r;
-                                resp = SUCCESS_O;
-                                push_qp(list_files, &(mf->key), &(mf->size_key));
-                            }
-                            for(i=0; i<n_fe; i++){
-                                file_free(mf_e[i]);
-                            }
-                        }
-                        break;
-                    }
                     default:{
                         // if the 'create' flag has not been specified,
                         // the file must already exist in the db
                         if((mf = hash_find(files_server, pathname)) == NULL){
                             reason_error = ERROR_OF_CREATE;
                             resp = FAILED_O;
-                        }
-                        else{
+                        }else{
                             resp = SUCCESS_O;
                         }
                     }
@@ -711,7 +710,7 @@ void* workers( void* args ){
                         }
                     }
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : Request to open / create the file failed, reason : %s\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] : Request to open / create the file failed, reason : %s\n", tempo_dgb++, reason);
                     #endif
                     if((err = writen(fd_client_r, (void *) &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -723,7 +722,7 @@ void* workers( void* args ){
                     }
                 }else{
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : Request to open / create the file successful!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] : Request to open / create the file successful!\n", tempo_dgb++);
                     #endif
                     if((err = writen(fd_client_r, (void *) &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -734,7 +733,7 @@ void* workers( void* args ){
             }
             case _RF_O:{ // if it's an 'read file' request
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : management of the reading request!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] : management of the reading request!\n", tempo_dgb++);
                 #endif
 
                 // I read the pathname size of the file
@@ -756,7 +755,7 @@ void* workers( void* args ){
                     resp = FAILED_O;
                     strncpy(reason, R_RF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : reading of the file failed, reason : %s\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] : reading of the file failed, reason : %s\n", tempo_dgb++, reason);
                     #endif
 
                     if((err = writen(fd_client_r, (void *) &resp, sizeof(int))) == -1){
@@ -798,7 +797,7 @@ void* workers( void* args ){
                     }
 
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : successful reading of the file!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] : successful reading of the file!\n", tempo_dgb++);
                     #endif
                     goto fine_while;
                 }
@@ -806,7 +805,7 @@ void* workers( void* args ){
             }
             case _RNF_O:{ // if it's an 'read n file' request
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : server closed!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] : server closed!\n", tempo_dgb++);
                 #endif
                 int N = 0;
                 if(readn(fd_client_r, &N, sizeof(int)) == -1){
@@ -818,7 +817,7 @@ void* workers( void* args ){
             }
             case _WF_O:{ // if it's an 'write file' request'
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : handling of the request to write a file to the server!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] : handling of the request to write a file to the server!\n", tempo_dgb++);
                 #endif
                 char* data = NULL;
                 size_t sz_d = 0;
@@ -831,21 +830,11 @@ void* workers( void* args ){
                     goto fine_while;
                 }
 
-                    size_t sz_aux = sz_d;
-                    while(!hasSpace(sz_aux)){
-                        char* pf = NULL;
-                        while((pf = pop_qp(list_files)) == NULL);
-                        if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
-                        else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
-                        sz_aux -= mf_e[n_fe]->size_data;
-                        n_fe++;
-                    }
-
                     if((mf = hash_find(files_server, pathname)) == NULL){
                         resp = FAILED_O;
                         strncpy(reason, R_WF_EXIST, STR_LEN-1);
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
+                            fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
                         #endif
                         if((writen(fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -861,7 +850,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_WF_OPEN, STR_LEN-1);
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
+                            fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
                         #endif
                         if((writen(fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -873,14 +862,29 @@ void* workers( void* args ){
                         goto fine_while;
                     }
 
-                    if((mf = hash_update_insert(files_server, pathname, sz_p, data, sz_d)) == NULL){
+                    size_t sz_aux = sz_d;
+                    while(!hasSpace(sz_aux)){
+                        char* pf = NULL;
+                        while((pf = pop_qp(list_files)) == NULL);
+                        int index = 0;
+                        if(n_fe < MAX_FILES_EJECTED){
+                            index = n_fe;
+                            n_fe++;
+                        } else{
+                            index = MAX_FILES_EJECTED-1;
+                        }
+                        mf_e[index] = hash_remove(files_server, pf);
+                        sz_aux -= mf_e[index]->size_data;
+                    }
+
+                    if((mf = hash_update_insert(files_server, pathname, sz_p, data, sz_d, fd_client_r)) == NULL){
                         toClose = 1;
                         goto fine_while;
                     }
                     resp = SUCCESS_O;
                     push_qp(list_files, &(mf->key), &(mf->size_key));
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : successful writing of the file to the server!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] : successful writing of the file to the server!\n", tempo_dgb++);
                     #endif
                     if((writen(fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -970,7 +974,7 @@ void* workers( void* args ){
                         goto fine_while;
                     }
 
-                    if((mf = hash_update_cat(files_server, pathname, sz_p, data, sz_d)) == NULL){
+                    if((mf = hash_update_insert_append(files_server, pathname, sz_p, data, sz_d)) == NULL){
                         toClose = 1;
                         goto fine_while;
                     }
@@ -1240,6 +1244,7 @@ void* workers( void* args ){
 * master: function of the server that starts the server
 */
 void master( void ){
+    cleanup();
     int i, err;
 
     #ifdef PRINT_INFO
@@ -1373,7 +1378,7 @@ void master( void ){
             }
         }
 
-    }while(!close_server);
+    }while(!close_server && !finish_work);
 
     pthread_mutex_lock(&threads_created->lock);
     while(threads_created->count > 0){
@@ -1396,7 +1401,7 @@ void master( void ){
 /******************************* main function *******************************/
 
 int main(int argc, char** argv){
-    cleanup();
+
 //    atexit(cleanup);
 
     if(argc != 2){
@@ -1404,12 +1409,20 @@ int main(int argc, char** argv){
         return EXIT_FAILURE;
     }
 
+    struct sigaction sig;
+    sig.sa_handler = sigterm;
+    sigemptyset(&sig.sa_mask);
+    sig.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sig, NULL);
+    sigaction(SIGQUIT, &sig, NULL);
+    sigaction(SIGHUP, &sig, NULL);
+
     int err;
 
     SYSCALL_EXIT_EQ("config_server", err, config_server(argv[1]), -1,
                             "server configuration failure");
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : Server startup!\n", tempo_dgb++);
+        fprintf(stdout, "[%ld] : Server startup!\n", tempo_dgb++);
     #endif
 
     master();
