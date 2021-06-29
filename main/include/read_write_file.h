@@ -49,7 +49,7 @@
 #include <string.h>
 #include <time.h>
 
-static inline int read_file( const char *pathname, char* str, size_t* sz, int flag ){
+static inline int read_file( const char *pathname, void** str, size_t* sz, int flag ){
 
     int fd;
     if((fd = open(pathname, flag)) == -1){
@@ -58,10 +58,10 @@ static inline int read_file( const char *pathname, char* str, size_t* sz, int fl
     struct stat info;
     fstat(fd, &info);
     *sz = (size_t) info.st_size;
-    if(str)
-        free(str);
-    str = malloc(*sz);
-    if( read(fd, str, *sz) == -1 ){
+    //if(*str)
+        //free(*str);
+    *str = malloc(*sz);
+    if( read(fd, *str, *sz) == -1 ){
         return -1;
     }
 
@@ -71,7 +71,7 @@ static inline int read_file( const char *pathname, char* str, size_t* sz, int fl
 }
 
 
-static inline int write_file( char *pathname, char* str, size_t sz ){
+static inline int write_file( char *pathname, void* str, size_t sz ){
 
     if(!str)
         return -1;
