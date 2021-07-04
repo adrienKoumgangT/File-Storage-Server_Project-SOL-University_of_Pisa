@@ -32,7 +32,7 @@
 * @date 00/05/2021
 */
 
-// #define _POSIX_C_SOURCE 200112L
+//#define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +58,8 @@
 
 #include "communication.h"
 #include "utils.h"
-#include "db_files.h"
+#include "my_hash.h"
+#include "my_file.h"
 #include "queue.h"
 #include "replace_policies.h"
 
@@ -1305,7 +1306,7 @@ void master( void ){
 
     SYSCALL_EXIT_EQ("init_struct_count_elem", clients_connected, init_struct_count_elem(), NULL, "");
 
-    SYSCALL_EXIT_EQ("hash_create", files_server, hash_create( DIM_HASH_TABLE ) , NULL, "")
+    SYSCALL_EXIT_EQ("hash_create", files_server, hash_create( DIM_HASH_TABLE, &hash_function_for_file_t, &hash_key_compare_for_file_t ) , NULL, "")
 
     SYSCALL_EXIT_EQ("initQueue", buffer_request, initQueue(), NULL, "");
 
