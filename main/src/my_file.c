@@ -117,9 +117,11 @@ file_t* file_create( char* key, size_t size_key, void* data, size_t size_data, i
 
     file_t* new_file = (file_t *) malloc(sizeof(file_t));
     if(!new_file) return NULL;
-    new_file->key       = key;
+    new_file->key       = (char *) malloc(size_key);
+    strcpy(new_file->key, key);
     new_file->size_key  = size_key;
-    new_file->data      = data;
+    new_file->data      = (void *) malloc(size_data);
+    strcpy(new_file->data, data);
     new_file->size_data = size_data;
     new_file->log       = -1;
     new_file->next      = NULL;
@@ -148,7 +150,8 @@ file_t* file_update_data(file_t* ft, void* data, size_t size_data ){
 
 
     if(ft->data == NULL){
-        new_file->data = data;
+        new_file->data = (void *) malloc(size_data);
+        strcpy(new_file->data, data);
     }else{
         new_file->data = malloc(ft->size_data + size_data + 1);
         if( sprintf(new_file->data, "%s%s", (char *)ft->data, (char *)data) < 0) return NULL;
