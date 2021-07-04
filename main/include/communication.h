@@ -36,7 +36,6 @@
 #ifndef COMMUNICATION_H
 #define COMMUNICATION_H
 
-#include "my_file.h"
 
 // flags that specify the operation requested by the client
 #define OF      "OF";

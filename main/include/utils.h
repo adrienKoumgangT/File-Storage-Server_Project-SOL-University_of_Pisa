@@ -32,8 +32,12 @@
 * @date 00/05/2021
 */
 
+// #define _POSIX_C_SOURCE 200112L
+
 #ifndef UTILS_H_
 #define UTILS_H_
+
+// #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +68,8 @@
 
 #ifndef UTILS_FUNCTIONS
 #define UTILS_FUNCTIONS
+
+extern char *strtok_r(char *, const char *, char **);
 
 static inline long getNumber( char* s, int base ){
     long val;

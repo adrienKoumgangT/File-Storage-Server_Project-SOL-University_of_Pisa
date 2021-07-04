@@ -32,6 +32,7 @@
 * @date 00/05/2021
 */
 
+// #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +56,8 @@
 #include "read_write_file.h"
 #include "utils.h"
 
-
+extern char *realpath(const char *, char *);
+extern int usleep(useconds_t);
 
 /************** values to be used throughout the program **************/
 

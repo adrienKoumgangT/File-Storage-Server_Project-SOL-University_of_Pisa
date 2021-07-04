@@ -42,6 +42,7 @@
  #define FILE_T
 
 #include <pthread.h>
+#include <sys/select.h>
 
 /**
 * format of a generic file
