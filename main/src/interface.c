@@ -163,6 +163,33 @@ int closeConnection( const char* sockname ){
     }
 
     if(strncmp(serv_addr.sun_path, sockname, strlen(sockname)+1) ==  0){
+        operation = _CC_O;
+        // I write the operation to do
+        if((writen(fd_sock, (void *) &operation, sizeof(int))) == -1){
+            return -1;
+        }
+
+        /* receiving the response to the 'closeConnection' request to the server */
+        result = -1;
+
+        if((readn(fd_sock, (void *) &result, sizeof(int))) == -1){
+            return -1;
+        }
+
+        if( result == SUCCESS_O){
+            #ifdef PRINT_INFORMATION
+                fprintf(stderr, "Information:the connection was successfully closed!\n");
+            #endif
+            errno = EFAULT;
+            return -1;
+        }else{
+            #ifdef PRINT_INFORMATION
+                fprintf(stderr, "Information: close connection operation failed!\n");
+            #endif
+            errno = EFAULT;
+            return -1;
+        }
+
         return close(fd_sock);
     }else{
         #ifdef PRINT_INFORMATION

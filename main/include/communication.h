@@ -38,6 +38,7 @@
 
 
 // flags that specify the operation requested by the client
+#define CC      "CC"
 #define OF      "OF";
 #define RF      "RF";
 #define RNF     "RNF";
@@ -49,6 +50,7 @@
 #define RF      "RF";
 
 // operation
+#define _CC_O       (0)
 #define _OF_O       (1)
 #define _RF_O       (2)
 #define _RNF_O      (3)
