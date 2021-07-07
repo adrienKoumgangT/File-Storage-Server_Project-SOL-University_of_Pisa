@@ -170,7 +170,7 @@ data_hash_t* hash_find( const hash_t* ht, char* key ){
      }
      ptr = ptr_n->list;
      while(ptr != NULL){
-        if(ht->hash_key_compare(ptr->key, key)){
+        if(ht->hash_key_compare(ptr->key, key) == 0){
             unlockNodeHash(ptr_n);
             return ptr;
         }
@@ -209,7 +209,7 @@ data_hash_t* hash_insert( hash_t* ht, char* key, size_t size_key, void* data, si
      if(ptr_n->n > 0){
          ptr = ptr_n->list;
          while( ptr != NULL ){
-             if(ht->hash_key_compare(ptr->key, key)){
+             if(ht->hash_key_compare(ptr->key, key) == 0){
                  unlockNodeHash(ptr_n);
                  return NULL;
              }
@@ -258,8 +258,10 @@ data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, void* d
       node_h* ptr_n = ht->table[key_hash];
       lockNodeHash(ptr_n);
       // I look for the value to replace
-      for(prev=NULL, curr=ptr_n->list; curr!=NULL; prev=curr, curr=curr->next)
-         if(ht->hash_key_compare(curr->key, key)){
+      prev=NULL;
+      curr=ptr_n->list;
+      while( curr!=NULL ){
+         if(ht->hash_key_compare(curr->key, key) == 0){
 
              if(prev == NULL) // if the item searched for at the top of the list
                  ptr_n->list = curr->next;
@@ -268,7 +270,11 @@ data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, void* d
 
              old_data = curr;
              curr = NULL;
-         }
+         }else{
+            prev=curr;
+            curr=curr->next;
+        }
+     }
 
     data_hash_t* new_item = NULL;
     if(old_data == NULL){
@@ -313,7 +319,7 @@ data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size
      lockNodeHash(ptr_n);
      ptr = ptr_n->list;
      while(ptr != NULL){
-        if(ht->hash_key_compare(ptr->key, key)){
+        if(ht->hash_key_compare(ptr->key, key) == 0){
             file_append_content(ptr, data, size_data);
             unlockNodeHash(ptr_n);
             return ptr;
@@ -354,7 +360,7 @@ data_hash_t* hash_remove( hash_t* ht, char* key ){
     prev=NULL;
     curr=ptr_n->list;
     while( curr!=NULL ){
-        if(ht->hash_key_compare(curr->key, key)){
+        if(ht->hash_key_compare(curr->key, key) == 0){
             if(prev == NULL)
                 ptr_n->list = curr->next;
             else
@@ -398,7 +404,7 @@ int hash_delete( hash_t* ht, char *key ){
     prev = NULL;
     curr=ptr_n->list;
     while( curr!=NULL ){
-        if(ht->hash_key_compare(curr->key, key)){
+        if(ht->hash_key_compare(curr->key, key) == 0){
             if(prev == NULL){
                 ptr_n->list = curr->next;
             }else{
