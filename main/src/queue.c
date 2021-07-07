@@ -60,6 +60,7 @@ static inline Queue_t* allocQueue( void ){
 }
 
 static inline void freeNode( Node_t* node ){
+    if(node->data) free(node->data);
     free((void*)node);
 }
 
