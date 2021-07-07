@@ -58,7 +58,7 @@ INCMAIN = ../main/include/
 
 all: $(TARGETS)
 
-$(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)queue.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o $(OBJMAIN)replace_policies.o $(OBJMAIN)utils.o
+$(BIN)server: $(OBJMAIN)server.o $(OBJMAIN)buffer.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o $(OBJMAIN)replace_policies.o $(OBJMAIN)utils.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LIBS)
 
 $(BIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o $(OBJMAIN)command_handler.o $(OBJMAIN)utils.o
@@ -79,7 +79,7 @@ $(OBJMAIN)replace_policies.o: $(SRCMAIN)replace_policies.c $(INCMAIN)replace_pol
 $(OBJMAIN)command_handler.o: $(SRCMAIN)command_handler.c $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJMAIN)queue.o: $(SRCMAIN)queue.c $(INCMAIN)queue.h $(INCMAIN)utils.h
+$(OBJMAIN)buffer.o: $(SRCMAIN)buffer.c $(INCMAIN)buffer.h $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 $(OBJMAIN)my_hash.o: $(SRCMAIN)my_hash.c $(INCMAIN)my_hash.h $(INCMAIN)my_file.h
