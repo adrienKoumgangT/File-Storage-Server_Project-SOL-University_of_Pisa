@@ -229,7 +229,7 @@ data_hash_t* hash_insert( hash_t* ht, char* key, size_t size_key, void* data, si
     unlockNodeHash(ptr_n);
     lockHash(ht);
     ht->number_of_item++;
-    unlockHash(ht);
+    unlockHashAndSignal(ht);
 
     return new_item;
 }
@@ -306,7 +306,7 @@ data_hash_t* hash_update_insert( hash_t* ht, char* key, size_t size_key, void* d
   * @returns : - pointer to the data corresponding to the key.
   *            - If the key was not found, return NULL.
   */
-data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size_key, void* data, size_t size_data ){
+data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size_key, void* data, size_t size_data, int fd ){
     if(!ht || !key || !data)
         return NULL;
 
@@ -320,15 +320,35 @@ data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size
      ptr = ptr_n->list;
      while(ptr != NULL){
         if(ht->hash_key_compare(ptr->key, key) == 0){
-            file_append_content(ptr, data, size_data);
-            unlockNodeHash(ptr_n);
-            return ptr;
+            if(file_has_lock(ptr, fd)){
+                file_append_content(ptr, data, size_data);
+                unlockNodeHash(ptr_n);
+                return ptr;
+            }else{
+                return NULL;
+            }
          }
         ptr = ptr->next;
     }
     unlockNodeHash(ptr_n);
 
     return NULL;
+}
+
+int hash_size( hash_t* ht ){
+    int sz = 0;
+    lockHash(ht);
+    sz = ht->size;
+    unlockHashAndSignal(ht);
+    return sz;
+}
+
+int hash_length( hash_t* ht ){
+    int sz = 0;
+    lockHash(ht);
+    sz = ht->number_of_item;
+    unlockHashAndSignal(ht);
+    return sz;
 }
 
 /**
@@ -343,7 +363,7 @@ data_hash_t* hash_update_insert_append( const hash_t* ht, char* key, size_t size
  * @exceptions : if one of the given parameters is NULL it returns NULL
  */
 data_hash_t* hash_remove( hash_t* ht, char* key ){
-     if(!ht || !key)
+    if(!ht || !key)
         return NULL;
 
     data_hash_t *curr, *prev;
@@ -379,6 +399,50 @@ data_hash_t* hash_remove( hash_t* ht, char* key ){
     }
     unlockNodeHash(ptr_n);
     return NULL;
+}
+
+data_hash_t* get_copy_file_hash(hash_t* ht, int* l, int* c){
+    if(!ht || !l || !c || *l<0 || *c < 1)
+        return NULL;
+
+    data_hash_t *d = NULL, *r = NULL;
+    node_h* ptr_n = NULL;
+    int i = 1;
+    int is_new = 0;
+
+    back_begin:
+        if(*l < hash_size(ht)){
+            ptr_n = ht->table[*l];
+            lockNodeHash(ptr_n);
+            while(ptr_n->list == NULL){
+                unlockNodeHash(ptr_n);
+                (*l)++;
+                if(*l >= hash_size(ht)) return NULL;
+                ptr_n = ht->table[*l];
+                lockNodeHash(ptr_n);
+            }
+            d = ptr_n->list;
+            if(!is_new){
+                while(i < *c && d != NULL){
+                    d = d->next;
+                    i++;
+                }
+                if(d == NULL){
+                    unlockNodeHash(ptr_n);
+                    is_new = 1;
+                    (*l)++;
+                    goto back_begin;
+                }else{
+                    (*c)++;
+                    r = file_copy( d );
+                }
+            }else{
+                r = file_copy( d );
+            }
+            unlockNodeHash(ptr_n);
+        }
+
+    return r;
 }
 
 /**
@@ -449,7 +513,9 @@ int hash_destroy( hash_t* ht ){
         ptr_list = ptr_n->list;
         for(curr=ptr_list; curr!=NULL;){
             next = curr->next;
+            fprintf(stdout, "<<<<<< cancello il file %s\n", curr->key);
             file_free(curr);
+            if(!curr) free(curr);
             curr = next;
         }
         ptr_n->n = 0;

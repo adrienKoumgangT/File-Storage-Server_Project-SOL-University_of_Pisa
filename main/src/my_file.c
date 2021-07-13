@@ -157,10 +157,12 @@ file_t* file_update_data(file_t* ft, void* data, size_t size_data ){
 
     if(ft->data == NULL){
         new_file->data = (void *) malloc(size_data);
-        memcpy(new_file->data, data, size_data);
+        memset(new_file->data, '0', size_data);
+        if(memcpy(new_file->data, data, size_data) == NULL) fprintf(stdout, ">>>>>>>> un altro bordello\n");
     }else{
         new_file->data = malloc(ft->size_data + size_data + 1);
-        if( sprintf(new_file->data, "%s%s", (char *)ft->data, (char *)data) < 0) return NULL;
+        // if( sprintf(new_file->data, "%s%s", (char *)ft->data, (char *)data) < 0) return NULL;
+        if(strncat(new_file->data, (char *)data, size_data) == NULL) fprintf(stdout, ">>>> sono fotuto\n");
         free(data);
     }
 
@@ -208,16 +210,39 @@ int file_has_lock( file_t* ft, int fd ){
     return r;
 }
 
-int file_read_content( file_t * ft, void* content, size_t* size_content ){
+
+int file_read_content( file_t * ft, void** content, size_t* size_content ){
     lockFile(ft);
     if(ft->data == NULL || ft->size_data <= 0){
-        content = NULL;
+        *content = NULL;
         *size_content = 0;
     }else{
-        if(content) free(content);
-        content =  malloc(ft->size_data+1);
-        memset(content, '0', ft->size_data);
-        if( memcpy(content, ft->data, ft->size_data) == NULL) return -1;
+        if(*content) free(*content);
+        *content =  malloc(ft->size_data+1);
+        memset(*content, '0', ft->size_data);
+        if( memcpy(*content, ft->data, ft->size_data) == NULL) return -1;
+        *size_content = ft->size_data;
+    }
+    unlockFileAndSignal(ft);
+    return 0;
+}
+
+int file_read( file_t* ft, char** key, size_t* size_key, void** content, size_t* size_content ){
+    lockFile(ft);
+    if(ft->data == NULL || ft->size_data <= 0){
+        *key = NULL;
+        *size_key = 0;
+        *content = NULL;
+        *size_content = 0;
+    }else{
+        if(*key) free(*key);
+        if(*content) free(*content);
+        *key = malloc(ft->size_key+1);
+        *content =  malloc(ft->size_data+1);
+        memset(*key, '\0', ft->size_key);
+        memset(*content, '0', ft->size_data);
+        if( strncpy(*key, ft->key, ft->size_key) == NULL ) return -1;
+        if( memcpy(*content, ft->data, ft->size_data) == NULL) return -1;
         *size_content = ft->size_data;
     }
     unlockFileAndSignal(ft);
@@ -242,13 +267,23 @@ int file_append_content( file_t* ft, void* content, size_t size_content ){
 
     lockFile(ft);
     void* p = ft->data;
-    ft->data = malloc(ft->size_data + size_content+1);
+    //ft->data = malloc(ft->size_data + size_content+1);
     //strncat(ft->data, content, size_content);
-    if( sprintf(ft->data, "%s%s", (char *)p, (char *)content) < 0) return -1;
+    // if( sprintf(ft->data, "%s%s", (char *)p, (char *)content) < 0) return -1;
+    ft->data = realloc(ft->data, ft->size_data + size_content+1);
+    strncpy((char *)ft->data, (char *)content, size_content);
     ft->size_data += size_content;
     free(p);
     unlockFileAndSignal(ft);
     return 0;
+}
+
+file_t* file_copy( file_t* ft ){
+    if(!ft) return NULL;
+    lockFile(ft);
+    file_t* cpy_ft = file_create(ft->key, ft->size_key, ft->data, ft->size_data, ft->log);
+    unlockFileAndSignal(ft);
+    return cpy_ft;
 }
 
 void file_add_fd( file_t* ft, int fd ){

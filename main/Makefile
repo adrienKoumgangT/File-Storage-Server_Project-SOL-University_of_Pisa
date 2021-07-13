@@ -34,15 +34,15 @@
 
 CC 			= gcc
 CFLAGS 		= -Wall -Werror -pedantic
-INCLUDES 	= -I . -I ./include -I ../main/include
+INCLUDES 	= -I . -I ./include
 LDFLAGS 	= -L
 OPTFLAGS	= -g
 LIBS 		= -lpthread
 
-SRC = src/
-OBJ = objs/
-BIN = bin/
-INC = include/
+SRCMAIN = src/
+OBJMAIN = objs/
+BINMAIN = bin/
+INCMAIN = include/
 
 
 TARGETS = $(BIN)server \
@@ -54,34 +54,37 @@ TARGETS = $(BIN)server \
 
 all: $(TARGETS)
 
-$(BIN)server: $(OBJ)server.o $(OBJ)queue.o $(OBJ)my_hash.o $(OBJ)my_file.o
+$(BINMAIN)server: $(OBJMAIN)server.o $(OBJMAIN)buffer.o $(OBJMAIN)my_hash.o $(OBJMAIN)my_file.o $(OBJMAIN)replace_policies.o $(OBJMAIN)utils.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LIBS)
 
-$(BIN)client: $(OBJ)client.o  $(OBJ)interface.o $(OBJ)command_handler.o
+$(BINMAIN)client: $(OBJMAIN)client.o  $(OBJMAIN)interface.o $(OBJMAIN)command_handler.o $(OBJMAIN)utils.o
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^
 
-$(OBJ)server.o: $(SRC)server.c $(INC)utils.h $(INC)my_file.h $(INC)my_hash.h $(INC)queue.h $(INC)communication.h
+$(OBJMAIN)server.o: $(SRCMAIN)server.c $(INCMAIN)utils.h $(INCMAIN)my_file.h $(INCMAIN)my_hash.h $(INCMAIN)queue.h $(INCMAIN)replace_policies.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
 
-$(OBJ)client.o: $(SRC)client.c $(INC)interface.h $(INC)utils.h $(INC)command_handler.h
+$(OBJMAIN)client.o: $(SRCMAIN)client.c $(INCMAIN)interface.h $(INCMAIN)utils.h $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)interface.o: $(SRC)interface.c $(INC)interface.h $(INC)communication.h $(INC)utils.h
+$(OBJMAIN)interface.o: $(SRCMAIN)interface.c $(INCMAIN)interface.h $(INCMAIN)communication.h $(INCMAIN)utils.h $(INCMAIN)read_write_file.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)command_handler.o: $(SRC)command_handler.c $(INC)command_handler.h
+$(OBJMAIN)replace_policies.o: $(SRCMAIN)replace_policies.c $(INCMAIN)replace_policies.h $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)replace_policies.o: $(SRC)replace_policies.c $(INC)replace_policies.h $(INC)utils.h
+$(OBJMAIN)command_handler.o: $(SRCMAIN)command_handler.c $(INCMAIN)command_handler.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)queue.o: $(SRC)queue.c $(INC)queue.h $(INC)utils.h
+$(OBJMAIN)buffer.o: $(SRCMAIN)buffer.c $(INCMAIN)buffer.h $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)my_hash.o: $(SRC)my_hash.c $(INC)my_hash.h $(INC)my_file.h
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $< $(LIBS)
+$(OBJMAIN)my_hash.o: $(SRCMAIN)my_hash.c $(INCMAIN)my_hash.h $(INCMAIN)my_file.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
-$(OBJ)my_file.o: $(SRC)my_file.c $(INC)my_file.h $(INC)my_hash.h
+$(OBJMAIN)my_file.o: $(SRCMAIN)my_file.c $(INCMAIN)my_file.h $(INCMAIN)my_hash.h
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
+
+$(OBJMAIN)utils.o: $(SRCMAIN)utils.c $(INCMAIN)utils.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -c -o $@ $<
 
 clean:

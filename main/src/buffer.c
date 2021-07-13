@@ -123,7 +123,7 @@ int pushBuffer(Buffer_t *b, void *data, size_t size_data) {
     if (!nb)
         return -1;
 
-    nb->data = malloc(sizeof(size_data));
+    nb->data = malloc(size_data);
     memcpy(nb->data, data, size_data);
     nb->next = NULL;
 

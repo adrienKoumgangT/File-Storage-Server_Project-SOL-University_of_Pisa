@@ -75,9 +75,15 @@ data_hash_t* hash_insert( hash_t*, char*, size_t, void*, size_t, int );
 
 data_hash_t* hash_update_insert( hash_t*, char*, size_t, void*, size_t, int );
 
-data_hash_t* hash_update_insert_append( const hash_t*, char*, size_t, void*, size_t );
+data_hash_t* hash_update_insert_append( const hash_t*, char*, size_t, void*, size_t, int );
+
+int hash_size( hash_t* );
+
+int hash_length( hash_t* );
 
 data_hash_t* hash_remove( hash_t*, char* );
+
+data_hash_t* get_copy_file_hash( hash_t* , int* , int* );
 
 int hash_delete( hash_t*, char* );
 

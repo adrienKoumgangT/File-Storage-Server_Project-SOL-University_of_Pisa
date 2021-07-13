@@ -44,8 +44,8 @@
 #include <pthread.h>
 
 typedef struct _Node_p{
-    char** p_key;
-    size_t* p_sz;
+    char* p_key;
+    size_t p_sz;
     struct _Node_p *next;
 } Node_p;
 
@@ -57,15 +57,15 @@ typedef struct _Queue_p{
     pthread_cond_t qpcond;
 } Queue_p;
 
-Queue_p* initQueueP();
+Queue_p* initQueueP( void );
 
 void deleteQueueP( Queue_p* );
 
-int push_qp( Queue_p*, char**, size_t* );
-
-int reset_sz_qp(Queue_p*, char**, size_t*);
+int push_qp( Queue_p*, char*, size_t );
 
 char* pop_qp( Queue_p* );
+
+char* get_put_last_qp( Queue_p* );
 
 Node_p* findNodeP( Queue_p*, char* );
 
@@ -73,6 +73,10 @@ void deleteNodeP( Queue_p*, char* );
 
 unsigned long length_qp( Queue_p* );
 
-int repositionNodeP( Queue_p*, char* );
+int repositionNodeP( Queue_p*, char*, size_t );
+
+int take_lock_queueP( Queue_p* );
+
+int release_lock_queueP( Queue_p* );
 
 #endif

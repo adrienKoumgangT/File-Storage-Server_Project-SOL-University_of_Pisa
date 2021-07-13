@@ -58,6 +58,7 @@ static inline Queue_p* allocQueueP( void ){
 }
 
 static inline void freeNodeP( Node_p* node ){
+    if(node->p_key) free(node->p_key);
     free((void *) node);
 }
 
@@ -82,13 +83,10 @@ static inline void unlockQueuePAndSignal( Queue_p* qp ){
 Queue_p* initQueueP( void ){
     Queue_p* qp = allocQueueP();
     if(!qp) return NULL;
-    qp->head = allocNodeP();
-    if(!qp->head) return NULL;
-    qp->head->p_key     = NULL;
-    qp->head->p_sz      = NULL;
-    qp->head->next      = NULL;
-    qp->tail = qp->head;
-    qp->qplen = 0;
+    qp->head        = NULL;
+    qp->head        = NULL;
+    qp->tail        = NULL;
+    qp->qplen       = 0;
     if(pthread_mutex_init(&qp->qplock, NULL) != 0){
         perror("pthread_mutex_init");
         return NULL;
@@ -101,19 +99,19 @@ Queue_p* initQueueP( void ){
 }
 
 void deleteQueueP( Queue_p* qp ){
-    while(qp->head != qp->tail){
+    while(qp->head != NULL){
         Node_p* p   = qp->head;
         qp->head    = qp->head->next;
         freeNodeP(p);
     }
-    if(qp->head) freeNodeP(qp->head);
+    qp->qplen = 0;
     if(&qp->qplock) pthread_mutex_destroy(&qp->qplock);
     if(&qp->qpcond) pthread_cond_destroy(&qp->qpcond);
     free((void *) qp);
 }
 
-int push_qp( Queue_p* qp, char** p_key, size_t* p_sz ){
-    if((qp == NULL) || (p_key == NULL) || (p_sz == NULL)){
+int push_qp( Queue_p* qp, char* p_key, size_t p_sz ){
+    if((qp == NULL) || (p_key == NULL)){
         errno = EINVAL;
         return -1;
     }
@@ -122,34 +120,21 @@ int push_qp( Queue_p* qp, char** p_key, size_t* p_sz ){
     if(!n)
         return -1;
 
-    n->p_key    = p_key;
     n->p_sz     = p_sz;
+    n->p_key = malloc(p_sz);
+    memset(p_key, '\0', p_sz);
+    strncpy(n->p_key,p_key, p_sz);
     n->next     = NULL;
 
     lockQueueP(qp);
-    qp->tail->next  = n;
-    qp->tail        = n;
-    qp->qplen       += 1;
-    unlockQueuePAndSignal(qp);
-    return 0;
-}
-
-int reset_sz_qp(Queue_p* qp, char** key, size_t* p_sz){
-    if(qp == NULL || key == NULL){
-        errno = EINVAL;
-        return -1;
-    }
-
-    lockQueueP(qp);
-    Node_p* p = qp->head->next;
-    while(p != NULL){
-        if(strcmp(*key, *(p->p_key)) == 0){
-            p->p_sz = p_sz;
-            unlockQueuePAndSignal(qp);
-            return 0;
-        }else{
-            p = p->next;
-        }
+    if(qp->head == NULL){
+        qp->head = n;
+        qp->tail = n;
+        qp->qplen = 1;
+    }else{
+        qp->tail->next  = n;
+        qp->tail        = n;
+        qp->qplen       += 1;
     }
     unlockQueuePAndSignal(qp);
     return 0;
@@ -162,18 +147,44 @@ char* pop_qp( Queue_p* qp ){
     }
 
     lockQueueP(qp);
-    while(qp->head == qp->tail){
+    while(qp->head == NULL){
         unlockQueuePAndWait(qp);
     }
-    assert(qp->head->next);
     Node_p* n   = qp->head;
-    char* key   = *((qp->head->next)->p_key);
     qp->head    = qp->head->next;
     qp->qplen   -= 1;
-    assert(qp->qplen >= 0);
     unlockQueueP(qp);
+
+    char* key   = (char *) malloc(n->p_sz);
+    memset(key, '\0', n->p_sz);
+    strncpy(key, n->p_key, n->p_sz);
     freeNodeP(n);
     return key;
+}
+
+char* get_put_last_qp( Queue_p* qp ){
+    char* str_get = NULL;
+    lockQueueP(qp);
+    if(qp->head == NULL){
+        unlockQueuePAndSignal(qp);
+        return NULL;
+    }
+    str_get = (char *) malloc(qp->head->p_sz);
+    memset(str_get, '\0', qp->head->p_sz);
+    strncpy(str_get, qp->head->p_key, qp->head->p_sz);
+    if(qp->head->next == NULL){
+        unlockQueuePAndSignal(qp);
+        fprintf(stdout, ">>> str_get1 = %s\n", str_get);
+        return str_get;
+    }
+    Node_p* np = qp->head;
+    qp->head = qp->head->next;
+    np->next  = NULL;
+    qp->tail->next = np;
+    qp->tail = qp->tail->next;
+    unlockQueuePAndSignal(qp);
+    fprintf(stdout, ">>> str_get2 = %s\n", str_get);
+    return str_get;
 }
 
 Node_p* findNodeP( Queue_p* qp, char* key ){
@@ -183,11 +194,13 @@ Node_p* findNodeP( Queue_p* qp, char* key ){
     }
 
     lockQueueP(qp);
-    Node_p* prev = qp->head;
-    Node_p* p = qp->head->next;
+    Node_p* prev = NULL;
+    Node_p* p = qp->head;
     while(p != NULL){
-        if(strcmp(key, *(p->p_key)) == 0){
-            prev->next = p->next;
+        if(strcmp(key, p->p_key) == 0){
+            if(prev != NULL) prev->next = p->next;
+            else qp->head = p->next;
+            qp->qplen--;
             unlockQueuePAndSignal(qp);
             return p;
         }else{
@@ -203,6 +216,9 @@ void deleteNodeP( Queue_p* qp, char* key ){
     Node_p* n = NULL;
     if((n = findNodeP(qp, key)) != NULL){
         freeNodeP(n);
+        lockQueueP(qp);
+        qp->qplen--;
+        unlockQueuePAndSignal(qp);
     }
 }
 
@@ -213,7 +229,7 @@ unsigned long length_qp( Queue_p* qp ){
     return len;
 }
 
-int repositionNodeP( Queue_p* qp, char* key ){
+int repositionNodeP( Queue_p* qp, char* key, size_t p_sz ){
     if(qp == NULL || key == NULL){
         errno = EINVAL;
         return -1;
@@ -221,10 +237,20 @@ int repositionNodeP( Queue_p* qp, char* key ){
 
     Node_p* n = NULL;
     if((n = findNodeP(qp, key)) != NULL){
-        push_qp(qp, n->p_key, n->p_sz);
+        push_qp(qp, n->p_key, p_sz);
         freeNodeP(n);
         return 0;
     }else{
         return -1;
     }
+}
+
+int take_lock_queueP(Queue_p* qp){
+    lockQueueP(qp);
+    return 0;
+}
+
+int release_lock_queueP(Queue_p* qp){
+    unlockQueuePAndSignal(qp);
+    return 0;
 }

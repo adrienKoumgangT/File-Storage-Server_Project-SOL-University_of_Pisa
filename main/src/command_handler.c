@@ -474,13 +474,13 @@ int initCmds( int argc, char** argv ){
             case cmd_l:{
                 memset(str_args, '\0', STR_LEN);
                 int count_a = 1;
+                int j=0;
                 if(argv[i][2] != '\0'){
                     strncpy(str_args, (argv[i] + 2), STR_LEN);
                     goto while_cmd_l;
                 }else{
                     if((i+1 < argc) && (strncmp(argv[i+1], "-", 1) != 0)){
                         i++;
-                        int j=0;
                         strncpy(str_args, argv[i], STR_LEN);
                         while_cmd_l:
                             while(str_args[j] != '\0'){
@@ -503,13 +503,13 @@ int initCmds( int argc, char** argv ){
             case cmd_u:{
                 memset(str_args, '\0', STR_LEN);
                 int count_a = 1;
+                int j=0;
                 if(argv[i][2] != '\0'){
                     strncpy(str_args, (argv[i] + 2), STR_LEN);
                     goto while_cmd_u;
                 }else{
                     if((i+1 < argc) && (strncmp(argv[i+1], "-", 1) != 0)){
                         i++;
-                        int j=0;
                         strncpy(str_args, argv[i], STR_LEN);
                         while_cmd_u:
                             while(str_args[j] != '\0'){
@@ -532,13 +532,13 @@ int initCmds( int argc, char** argv ){
             case cmd_c:{
                 memset(str_args, '\0', STR_LEN);
                 int count_a = 1;
+                int j=0;
                 if(argv[i][2] != '\0'){
                     strncpy(str_args, (argv[i] + 2), STR_LEN);
                     goto while_cmd_c;
                 }else{
                     if((i+1 < argc) && (strncmp(argv[i+1], "-", 1) != 0)){
                         i++;
-                        int j=0;
                         strncpy(str_args, argv[i], STR_LEN);
                         while_cmd_c:
                             while(str_args[j] != '\0'){
@@ -547,7 +547,7 @@ int initCmds( int argc, char** argv ){
                             }
                             char** new_a = (char **) malloc(count_a * sizeof(char *));
                             parse_arguments(str_args, new_a, count_a, ",");
-                            addCmd(cmd_l, -1, new_a, count_a);
+                            addCmd(cmd_c, -1, new_a, count_a);
                     }else{
                         hasError = 1;
                         if(!msgError[cmd_c]) msgError[cmd_d] = (char *) malloc(STR_LEN * sizeof(char));

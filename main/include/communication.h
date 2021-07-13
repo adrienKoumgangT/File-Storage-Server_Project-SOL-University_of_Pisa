@@ -47,7 +47,7 @@
 #define LF      "LF";
 #define UF      "UF";
 #define CF      "CF";
-#define RF      "RF";
+#define RFI     "RFI";
 
 // operation
 #define _CC_O       (0)
@@ -124,6 +124,7 @@ static inline int read_pathname(int fd, char** pathname, size_t* sz_p){
         return -1;
     }
     *pathname = (char *) malloc(*sz_p);
+    if(*pathname == NULL) return -1;
     memset(*pathname, '\0', *sz_p);
     if((readn(fd, (void *) *pathname, *sz_p)) == -1){
         return -1;
@@ -154,7 +155,7 @@ static inline int read_reason( int fd, char** reason ){
 }
 
 static inline int write_reason( int fd, char* reason ){
-    size_t sz_r = sizeof(reason);
+    size_t sz_r = strlen(reason)+1;
     if((writen(fd, (void *) &sz_r, sizeof(size_t))) == -1){
         return -1;
     }

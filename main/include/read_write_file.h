@@ -49,6 +49,29 @@
 #include <string.h>
 #include <time.h>
 
+/** Evita scritture parziali
+ *
+ *   \retval -1   errore (errno settato)
+ *   \retval  0   se durante la scrittura la write ritorna 0
+ *   \retval  1   se la scrittura termina con successo
+ */
+static inline int writen_f(int fd, void *buf, size_t size) {
+    size_t left = size;
+    int r;
+    char *bufptr = (char*)buf;
+    while(left>0) {
+        if ((r=write((int)fd ,bufptr,left)) == -1) {
+            if (errno == EINTR) continue;
+            perror("write");
+            return -1;
+        }
+        if (r == 0) return 0;
+            left    -= r;
+        bufptr  += r;
+    }
+    return 1;
+}
+
 static inline int read_file( const char *pathname, void** str, size_t* sz, int flag ){
 
     int fd;
@@ -77,11 +100,14 @@ static inline int write_file( char *pathname, void* str, size_t sz ){
         return -1;
 
     int fd;
-    if((fd = open(pathname, O_RDONLY)) == -1){
+    if((fd = open(pathname, O_CREAT | O_TRUNC | O_WRONLY, 0666)) == -1){
+        fprintf(stdout, ">>> echec de création du fichier: %s\n", pathname);
         return -1;
     }
 
-    if(write(fd, str, sz) == -1){
+    if(writen_f(fd, str, sz) == -1){
+        fprintf(stdout, ">> échec d'écriture du fihcier");
+        close(fd);
         return -1;
     }
 

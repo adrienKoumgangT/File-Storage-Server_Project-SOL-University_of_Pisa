@@ -116,9 +116,9 @@ static inline char* setNameFile( const char* dirname, const char* filepath ){
     char* pathfile = (char *) malloc((len_d + len_f + 2) * sizeof(char));
     memset(pathfile, '\0', len_d+len_f+2);
     strncpy(pathfile, dirname, len_d);
-    strncat(pathfile, "/", 2);
+    if(strncmp(dirname+len_d, "/", 1) != 0) strncat(pathfile, "/", 2);
     strncat(pathfile, filepath, len_f);
-    pathfile[len_d+len_f] = '/';
+    //pathfile[len_d+len_f] = '/';
     return pathfile;
 }
 

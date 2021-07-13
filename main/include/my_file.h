@@ -93,13 +93,17 @@ int file_leave_lock( file_t*, int );
 int file_has_lock( file_t*, int );
 
 // read the contents of a file
-int file_read_content( file_t *, void*, size_t* );
+int file_read_content( file_t *, void**, size_t* );
+
+int file_read( file_t*, char**, size_t*, void**, size_t* );
 
 // write the contents of a file
 int file_write_content( file_t*, void*, size_t );
 
 // append to the contents of a file
 int file_append_content( file_t*, void*, size_t );
+//
+file_t* file_copy( file_t* );
 
 //
 void file_add_fd( file_t*, int );

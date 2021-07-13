@@ -86,14 +86,15 @@
 
 // reasons for failure of operations
 #define ERROR_OF_CREATE 101
-#define R_OF_CREATE "ERROR 101: the requested file does not exist"
+#define R_OF_CREATE "ERROR 101: the requested file already exists on the server"
 #define ERROR_OF_LOCK 102
 #define R_OF_LOCK   "ERROR 102: the requested file is already in the possession of another user"
 #define ERROR_RF_EXIST 201
 #define R_RF_EXIST "ERROR 201: the requested file does not exist on the server"
 #define ERROR_RF_OPEN 202
 #define R_RF_OPEN "ERROR 202: read request on an unopened file"
-#define ERROR_RNF 301
+#define ERROR_RNF_EXIST 301
+#define R_RNF_EXIST "ERROR 301: the sever is empty"
 #define ERROR_WF 401
 #define R_WF_EXIST "ERROR 401: the requested file does not exist on the server"
 #define ERROR_WF_OPEN 402
@@ -112,6 +113,8 @@
 #define R_UF_LOCK "ERROR 702: the file was not previously locked"
 #define ERROR_CF_EXIT 801
 #define R_CF_EXIST "ERROR 801: the requested file does not exist on the server"
+#define ERROR_CF_LOCK 802
+#define R_CF_LOCK "ERROR 802: the file was not previously locked"
 #define ERROR_RFI_EXIT 901
 #define R_RFI_EXIST "ERROR 901: the requested file does not exist on the server"
 #define ERROR_RFI_LOCK 902
@@ -122,9 +125,17 @@
 static unsigned long tempo_dgb = 1;
 FILE* fd_log = NULL;
 time_t tm;
+char str_tm[30];
+
+int n_workers = 1;
+pthread_mutex_t m_workers = PTHREAD_MUTEX_INITIALIZER;
 
 static volatile sig_atomic_t close_server = 0;
 static volatile sig_atomic_t finish_work = 0;
+
+unsigned long client_all_server = 0;
+size_t space_all_server = 0;
+// unsigned long files_all_server = 0;
 
 /**
 * Definition of the structure that will have the server configuration data
@@ -140,6 +151,7 @@ typedef struct _config_for_server{
 
 typedef struct _info_server{
     unsigned long currently_number_threads_workers;
+    unsigned long currently_client_connected;
     unsigned long currently_space_occupied;
     unsigned long currently_number_files;
 
@@ -164,7 +176,7 @@ typedef struct _info_file{
     fi*     files;
 }info_file;
 
-static info_file** info_files = NULL;
+// static info_file** info_files = NULL;
 
 /*************** server variables *****************/
 
@@ -188,12 +200,6 @@ typedef struct _count_elem{
     pthread_cond_t      cond;
 } count_elem_t;
 
-
-/************************* number of threads created *************************/
-static count_elem_t* threads_created;
-
-/************************* number of client conneced *************************/
-static count_elem_t* clients_connected;
 
 /******************* pipe for communication Workers -> Master ****************/
 
@@ -230,7 +236,7 @@ void sigterm( int sign ){
 }
 
 /********** *********/
-/*
+
 static void inc_num_threads( void ){
     LOCK(&IS.cntw);
     IS.currently_number_threads_workers++;
@@ -243,25 +249,63 @@ static void dec_num_threads( void ){
     UNLOCK(&IS.cntw);
 }
 
-static void setSpaceOccupied( int inc_file, size_t space ){
+static unsigned long get_num_threads( void ){
+    LOCK(&IS.cntw);
+    unsigned long r = IS.currently_number_threads_workers;
+    UNLOCK(&IS.cntw);
+    return r;
+}
+
+static void inc_num_client( void ){
+    LOCK(&IS.cntw);
+    IS.currently_number_threads_workers++;
+    UNLOCK(&IS.cntw);
+    client_all_server =+ 1;;
+}
+
+static void dec_num_client( void ){
+    LOCK(&IS.cntw);
+    IS.currently_number_threads_workers--;
+    UNLOCK(&IS.cntw);
+}
+
+static unsigned long get_num_client( void ){
+    LOCK(&IS.cntw);
+    unsigned long r = IS.currently_number_threads_workers;
+    UNLOCK(&IS.cntw);
+    return r;
+}
+
+
+static void incSpaceOccupied( int inc_file, size_t space ){
     LOCK(&IS.cso);
     IS.currently_number_files += inc_file;
     IS.currently_space_occupied += space;
     UNLOCK(&IS.cso);
+    space_all_server += space;
 }
 
+/*
 static unsigned long getNumberFiles( void ){
-    return IS.currently_number_files;
+    LOCK(&IS.cso);
+    unsigned long r = IS.currently_number_files;
+    UNLOCK(&IS.cso);
+    return r;
 }
+*/
 
+/*
 static unsigned long getSpaceOccupied( void ){
-    return IS.currently_space_occupied;
+    LOCK(&IS.cso);
+    unsigned long r = IS.currently_space_occupied;
+    UNLOCK(&IS.cso);
+    return r;
 }
 */
 static int hasSpace( size_t sz ){
     int r = 0;
     LOCK(&IS.cso);
-    if(IS.currently_space_occupied < settings_server.size_memory+sz) r = 1;
+    if(IS.currently_space_occupied < (settings_server.size_memory+sz)) r = 1;
     UNLOCK(&IS.cso);
     return r;
 }
@@ -279,7 +323,7 @@ count_elem_t* init_struct_count_elem( void ){
 }
 
 /*** definition of the management functions of the hash table 'info_files' ***/
-
+/*
 int init_hash_info_files( void ){
     info_files = (info_file **) malloc(settings_server.concurrent_clients * sizeof(info_file *));
     if(!info_files) return -1;
@@ -373,9 +417,24 @@ void destroy_info_files( void ){
         free(info_files);
     }
 }
-
+*/
 /*************** definition of server configuration functions ***************/
 
+/**
+*
+*/
+void cancel_cfs(){
+    cfs *config = &settings_server;
+
+    if(!config) return;
+
+    if(config->socket_name)
+        free(config->socket_name);
+    config->socket_name = NULL;
+    if(config->log_file_name)
+        free(config->log_file_name);
+    config->log_file_name = NULL;
+}
 
 /**
 * reinitializes the server configurations
@@ -411,10 +470,10 @@ int is_correct_cfs(){
     if(!config)
         exit(EXIT_FAILURE);
 
-    if(config->thread_workers <= 1)
+    if(config->thread_workers <= 0)
         return -1;
 
-    if(config->concurrent_clients <= 1)
+    if(config->concurrent_clients <= 0)
         return -1;
 
     if(config->size_memory <= 0)
@@ -439,7 +498,7 @@ int is_correct_cfs(){
 void read_config_server(){
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : reading server configuration in progress...\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Server] : reading server configuration in progress...\n", tempo_dgb++);
     #endif
 
     cfs *config = &settings_server;
@@ -460,7 +519,7 @@ void read_config_server(){
     fflush(stdout);
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : finished server configuration reading.\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Server] : finished server configuration reading.\n", tempo_dgb++);
     #endif
 }
 
@@ -588,6 +647,7 @@ int config_file_parser_for_server( FILE* file ){
                                 "config file error");
 
     }
+    if(buffer) free(buffer);
 
     read_config_server();
 
@@ -608,7 +668,7 @@ int config_file_parser_for_server( FILE* file ){
 int config_server( char* path_file_config ){
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : reading server configurations from configuration file in progress...\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Server] : reading server configurations from configuration file in progress...\n", tempo_dgb++);
     #endif
 
     int err;
@@ -622,7 +682,7 @@ int config_server( char* path_file_config ){
     read_config_server();
 
 #ifdef PRINT_INFO
-fprintf(stdout, "[%ld] : Reading server configurations from finished configuration file.\n", tempo_dgb++);
+fprintf(stdout, "[%ld] - [Server] : Reading server configurations from finished configuration file.\n", tempo_dgb++);
 #endif
 
     return 0;
@@ -631,6 +691,12 @@ fprintf(stdout, "[%ld] : Reading server configurations from finished configurati
 /****************************** thread workers *******************************/
 
 void* workers( void* args ){
+    pthread_mutex_lock(&m_workers);
+    int id_worker = n_workers++;
+    pthread_mutex_unlock(&m_workers);
+    #ifdef PRINT_INFO
+        fprintf(stdout, "[%ld] - [Thread:%d] : creation of worker n. %d\n", tempo_dgb++, id_worker, id_worker);
+    #endif
     int operation = -1, err = 0;
     int toClose = 0;
     int i=0;
@@ -638,8 +704,21 @@ void* workers( void* args ){
         toClose = 0;
         if(finish_work && (lengthBuffer(buffer_request) == 0)) return NULL;
         long *fd_client_r = (long *) popBuffer(buffer_request);
+        if(fd_client_r){
+            if(*fd_client_r < 0){
+                free(fd_client_r);
+                dec_num_threads();
+                return NULL;
+            }
+        }else{
+            continue;
+        }
 
-        if(close_server) return NULL;
+        if(close_server){
+            if(fd_client_r) free(fd_client_r);;
+            dec_num_threads();
+            return NULL;
+        }
 
         // I read the type of request made by the client
         if(readn(*fd_client_r, &operation, sizeof(int)) == -1){
@@ -663,11 +742,14 @@ void* workers( void* args ){
         switch(operation){
             case _CC_O:{
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : Management of the request to close connection\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : Management of the request to close connection\n", tempo_dgb++, id_worker);
                 #endif
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : CLOSE CONNECTION : request to close connection\n", asctime(localtime(&tm)));
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : CLOSE CONNECTION : request to close connection\n", str_tm);
                 #endif
                 toClose = 1;
                 resp = SUCCESS_O;
@@ -676,7 +758,7 @@ void* workers( void* args ){
             }
             case _OF_O:{ // if it's an 'open file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : Management of the request to open/create a file\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : Management of the request to open/create a file\n", tempo_dgb++, id_worker);
                 #endif
                 int flag = 0;
                 if((err = readn(*fd_client_r, (void *) &flag, sizeof(int))) == -1){
@@ -690,14 +772,20 @@ void* workers( void* args ){
                 }
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : OPEN FILE : request to open the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : OPEN FILE : request to open the file '%s'\n", str_tm, pathname);
                 #endif
                 switch(flag){
                     case O_CREATE:
                     case O_CREATE_LOCK:{
                         #ifdef PRINT_LOG
                             tm = time(NULL);
-                            fprintf(fd_log, "[%s] : REQUEST : OPEN LOCK FILE : request to open the file with flag create lock\n", asctime(localtime(&tm)));
+                            memset(str_tm, '\0', 30);
+                            assert(asctime_r(localtime(&tm), str_tm));
+                            str_tm[strcspn(str_tm, "\n")] = '\0';
+                            fprintf(fd_log, "[%s] : REQUEST : OPEN LOCK FILE : request to open the file with flag create lock\n", str_tm);
                         #endif
 
                         // if the 'create' flag has been specified,
@@ -710,19 +798,31 @@ void* workers( void* args ){
                             while(!hasSpace(sz)){
                                 char* pf = NULL;
                                 while((pf = pop_qp(list_files)) == NULL);
+                                #ifdef PRINT_LOG
+                                    tm = time(NULL);
+                                    memset(str_tm, '\0', 30);
+                                    assert(asctime_r(localtime(&tm), str_tm));
+                                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                                    fprintf(fd_log, "[%s] : [WORKER] : CAPACITY MISS : insufficient space to insert the new file, I remove the file '%s' from the server.\n",
+                                                        str_tm, pf);
+                                #endif
                                 int index = 0;
                                 if(n_fe < MAX_FILES_EJECTED){
                                     index = n_fe;
                                     n_fe++;
                                 }else
                                     index = MAX_FILES_EJECTED;
-                                mf_e[index] = hash_remove(files_server, pf);
+                                if((mf_e[index] = hash_remove(files_server, pf)) != NULL){
+                                    incSpaceOccupied(1, mf_e[n_fe]->size_key + mf_e[n_fe]->size_data);
+                                }
                                 sz -= (mf_e[index]->size_key + mf_e[index]->size_data);
                             }
                             if((mf = hash_insert(files_server, pathname, sz_p, NULL, 0, *fd_client_r)) != NULL){
                                 if(flag == O_CREATE_LOCK) file_take_lock(mf, *fd_client_r);
                                 resp = SUCCESS_O;
-                                push_qp(list_files, &(mf->key), &(mf->size_key));
+                                push_qp(list_files, pathname, sz_p);
+                            }else{
+                                resp = FAILED_O;
                             }
                             for(i=0; i<n_fe; i++){
                                 file_free(mf_e[i]);
@@ -733,7 +833,10 @@ void* workers( void* args ){
                     case O_LOCK:{
                         #ifdef PRINT_LOG
                             tm = time(NULL);
-                            fprintf(fd_log, "[%s] : REQUEST : OPEN LOCK FILE : request to open the file with flag lock\n", asctime(localtime(&tm)));
+                            memset(str_tm, '\0', 30);
+                            assert(asctime_r(localtime(&tm), str_tm));
+                            str_tm[strcspn(str_tm, "\n")] = '\0';
+                            fprintf(fd_log, "[%s] : REQUEST : OPEN LOCK FILE : request to open the file with flag lock\n", str_tm);
                         #endif
 
                         // if the 'create' flag has not been specified,
@@ -746,7 +849,7 @@ void* workers( void* args ){
                             else{
                                 resp = SUCCESS_O;
                                 #ifdef _LRU_POLICY_
-                                    repositionNodeP(list_files, mf->key);
+                                    repositionNodeP(list_files, pathname, sz_p);
                                 #endif
                             }
                         }
@@ -780,7 +883,7 @@ void* workers( void* args ){
                         }
                     }
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : Request to open / create the file failed, reason : %s\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : Request to open / create the file failed, reason : %s\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((err = writen(*fd_client_r, (void *) &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -792,7 +895,7 @@ void* workers( void* args ){
                     }
                 } else{
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : Request to open / create the file successful!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : Request to open / create the file successful!\n", tempo_dgb++, id_worker);
                     #endif
                     if((err = writen(*fd_client_r, (void *) &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -803,26 +906,21 @@ void* workers( void* args ){
             }
             case _RF_O:{ // if it's an 'read file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : management of the reading request!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : management of the reading request!\n", tempo_dgb++, id_worker);
                 #endif
 
-                // I read the pathname size of the file
-                if(readn(*fd_client_r, (void *) sz_p, sizeof(size_t)) == -1){
-                    toClose = 1;
-                    goto fine_while;
-                }
-
                 // I read the pathname of the file
-                pathname = (char *) malloc(sz_p);
-                memset(pathname, '\0', sz_p);
-                if((readn(*fd_client_r, (void *) pathname, sz_p)) == -1){
+                if(read_pathname(*fd_client_r, &pathname, &sz_p) == -1){
                     toClose = 1;
                     goto fine_while;
                 }
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : READ FILE : request to read the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : READ FILE : request to read the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
@@ -830,7 +928,7 @@ void* workers( void* args ){
                     resp = FAILED_O;
                     strncpy(reason, R_RF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : reading of the file failed, reason : %s\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : reading of the file failed, reason : %s\n", tempo_dgb++, id_worker, reason);
                     #endif
 
                     if((err = writen(*fd_client_r, (void *) &resp, sizeof(int))) == -1){
@@ -843,22 +941,12 @@ void* workers( void* args ){
                     }
                     goto fine_while;
                 }else{
-                    /*
-                    if(!file_has_fd(mf, fd_client_r)){
-                        resp = FAILED_O;
-                        strncpy(reason, R_RF_OPEN, STR_LEN-1);
-                        if(write_response_RF(fd_client_r, resp, buf_data, sz_bd, NULL) == -1){
-                            toClose = 1;
-                        }
-                        goto fine_while;
-                    }*/
-
-                    char* buf_data = NULL;
+                    void* buf_data = NULL;
                     size_t sz_bd = 0;
-                    file_read_content(mf, buf_data, &sz_bd);
+                    file_read_content(mf, &buf_data, &sz_bd);
                     resp = SUCCESS_O;
                     #ifdef _LRU_POLICY_
-                        repositionNodeP(list_files, mf->key);
+                        repositionNodeP(list_files, mf->key, mf->size_key);
                     #endif
 
                     if((err = writen(*fd_client_r, &resp, sizeof(int))) == -1){
@@ -867,12 +955,14 @@ void* workers( void* args ){
                     }
 
                     if((err = write_data(*fd_client_r, buf_data, sz_bd)) == -1){
+                        if(buf_data) free(buf_data);
                         toClose = 1;
                         goto fine_while;
                     }
+                    if(buf_data) free(buf_data);
 
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : successful reading of the file!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : successful reading of the file!\n", tempo_dgb++, id_worker);
                     #endif
                     goto fine_while;
                 }
@@ -880,7 +970,7 @@ void* workers( void* args ){
             }
             case _RNF_O:{ // if it's an 'read n file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : server closed!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : reading 'N' files to server\n", tempo_dgb++, id_worker);
                 #endif
                 int N = 0;
                 if(readn(*fd_client_r, &N, sizeof(int)) == -1){
@@ -889,14 +979,72 @@ void* workers( void* args ){
                 }
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : READ N FILE : request to read '%d' files\n", asctime(localtime(&tm)), N);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    if(N > 0) fprintf(fd_log, "[%s] : REQUEST : READ N FILE : request to read '%d' files\n", str_tm, N);
+                    else fprintf(fd_log, "[%s] : REQUEST : READ N FILE : request to read all files\n", str_tm);
                 #endif
+                int le = 0;
+                if(N > 0){
+                    le =  N;
+                }else{
+                    le = hash_size(files_server);
+                }
+
+                if((writen(*fd_client_r, (void *) &le, sizeof(int))) == -1){
+                    toClose = 1;
+                    goto fine_while;
+                }
+                if(le > 0){
+                    file_t* fr = NULL;
+                    char* str_finish = NULL;
+                    int n = 0;
+                    int finish = 0;
+                    Node_p* np = list_files->head;
+                    int l = 0, c = 1;
+                    while( (n < le) && ((fr = get_copy_file_hash(files_server, &l, &c)) != NULL) ){
+                        if((writen(*fd_client_r, (void *) &finish, sizeof(int))) == -1){
+                            file_free(fr);
+                            goto fine_while;
+                        }
+                        if((write_pathname(*fd_client_r, fr->key, fr->size_key)) == -1){
+
+                        }
+                        if((write_data(*fd_client_r, fr->data, fr->size_data)) == -1){
+
+                        }
+                        if(fr) file_free(fr);
+                        n++;
+                    }
+                    if(str_finish) free(str_finish);
+                    if(n != le){
+                        finish = 1;
+                        if((writen(*fd_client_r, (void *) &finish, sizeof(int))) == -1){
+                                np = np->next;
+                                continue;
+                            }
+                    }
+                }else{
+                    reason_error = ERROR_RNF_EXIST;
+                    resp = FAILED_O;
+                    strncpy(reason, R_RNF_EXIST, STR_LEN-1);
+                    #ifdef PRINT_INFO
+                        fprintf(stdout, "[%ld] - [Worker:%d] : reading of the N file failed, reason : %s\n", tempo_dgb++, id_worker, reason);
+                    #endif
+
+                    if(write_reason(*fd_client_r, reason) == -1){
+                        toClose = 1;
+                    }
+                    goto fine_while;
+                }
+
                 // TODO: da finire
                 break;
             }
             case _WF_O:{ // if it's an 'write file' request'
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : handling of the request to write a file to the server!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : handling of the request to write a file to the server!\n", tempo_dgb++, id_worker);
                 #endif
                 if((read_pathname(*fd_client_r, &pathname, &sz_p)) == -1){
                     toClose = 1;
@@ -909,14 +1057,17 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : WRITE FILE : request to write the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : WRITE FILE : request to write the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
                     resp = FAILED_O;
                     strncpy(reason, R_WF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failed to write file to server, reason: %s\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -932,7 +1083,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_WF_OPEN, STR_LEN-1);
                         #ifdef PRINT_INFO
-                            fprintf(stdout, "[%ld] : failed to write file to server, reason: %s\n", tempo_dgb++, reason);
+                            fprintf(stdout, "[%ld] - [Worker:%d] : failed to write file to server, reason: %s\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -948,6 +1099,14 @@ void* workers( void* args ){
                     while(!hasSpace(sz_aux)){
                         char* pf = NULL;
                         while((pf = pop_qp(list_files)) == NULL);
+                        #ifdef PRINT_LOG
+                            tm = time(NULL);
+                            memset(str_tm, '\0', 30);
+                            assert(asctime_r(localtime(&tm), str_tm));
+                            str_tm[strcspn(str_tm, "\n")] = '\0';
+                            fprintf(fd_log, "[%s] : [WORKER] : CAPACITY MISS : insufficient space to insert the new file, I remove the file '%s' from the server.\n",
+                                    str_tm, pf);
+                        #endif
                         int index = 0;
                         if(n_fe < MAX_FILES_EJECTED){
                             index = n_fe;
@@ -955,18 +1114,19 @@ void* workers( void* args ){
                         } else{
                             index = MAX_FILES_EJECTED-1;
                         }
-                        mf_e[index] = hash_remove(files_server, pf);
+                        if((mf_e[index] = hash_remove(files_server, pf)) != NULL){
+                            IS.currently_space_occupied -= (mf_e[n_fe]->size_key + mf_e[n_fe]->size_data);
+                        }
                         sz_aux -= mf_e[index]->size_data;
                     }
-
-                    if((mf = hash_update_insert(files_server, pathname, sz_p, data, sz_d, *fd_client_r)) == NULL){
+                    if((mf = hash_update_insert_append(files_server, pathname, sz_p, data, sz_d, *fd_client_r)) == NULL){
                         toClose = 1;
                         goto fine_while;
                     }
                     resp = SUCCESS_O;
-                    push_qp(list_files, &(mf->key), &(mf->size_key));
+                    repositionNodeP(list_files, mf->key, mf->size_key);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : successful writing of the file to the server!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : successful writing of the file to the server!\n", tempo_dgb++, id_worker);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -1000,7 +1160,7 @@ void* workers( void* args ){
             }
             case _ATF_O:{// if it's an 'append to file' request
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : handling of the append request to the file!\n", tempo_dgb++);
+                fprintf(stdout, "[%ld] - [Worker:%d] : handling of the append request to the file!\n", tempo_dgb++, id_worker);
                 #endif
                 char* data = NULL;
                 size_t sz_d = 0;
@@ -1016,15 +1176,32 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : APPEND TO FILE : request to append data to the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : APPEND TO FILE : request to append data to the file '%s'\n", str_tm, pathname);
                 #endif
 
                     size_t sz_aux = sz_d;
                     while(!hasSpace(sz_aux)){
                         char* pf = NULL;
                         while((pf = pop_qp(list_files)) == NULL);
-                        if(n_fe < MAX_FILES_EJECTED) mf_e[n_fe] = hash_remove(files_server, pf);
-                        else mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf);
+                        #ifdef PRINT_LOG
+                        tm = time(NULL);
+                        memset(str_tm, '\0', 30);
+                        assert(asctime_r(localtime(&tm), str_tm));
+                        str_tm[strcspn(str_tm, "\n")] = '\0';
+                        fprintf(fd_log, "[%s] : [WORKER] : CAPACITY MISS : insufficient space to insert the new file, I remove the file '%s' from the server.\n",
+                                str_tm, pf);
+                        #endif
+                        if(n_fe < MAX_FILES_EJECTED){
+                            if((mf_e[n_fe] = hash_remove(files_server, pf)) != NULL){
+                                incSpaceOccupied(0, mf_e[n_fe]->size_key + mf_e[n_fe]->size_data);
+                            }
+                        }
+                        else if((mf_e[MAX_FILES_EJECTED-1] = hash_remove(files_server, pf)) != NULL){
+                                incSpaceOccupied(0, mf_e[MAX_FILES_EJECTED-1]->size_key + mf_e[MAX_FILES_EJECTED-1]->size_data);
+                        }
                         sz_aux -= mf_e[n_fe]->size_data;
                         n_fe++;
                     }
@@ -1033,7 +1210,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_WF_EXIST, STR_LEN-1);
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failure to concatenate files, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failure to concatenate files, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -1049,7 +1226,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_WF_OPEN, STR_LEN-1);
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failure to concatenate files, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failure to concatenate files, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -1061,14 +1238,15 @@ void* workers( void* args ){
                         goto fine_while;
                     }
 
-                    if((mf = hash_update_insert_append(files_server, pathname, sz_p, data, sz_d)) == NULL){
+                    if((mf = hash_update_insert_append(files_server, pathname, sz_p, data, sz_d, *fd_client_r)) == NULL){
                         toClose = 1;
                         goto fine_while;
                     }
+                    incSpaceOccupied(0, sz_d);
                     resp = SUCCESS_O;
-                    reset_sz_qp(list_files, &(mf->key), &(mf->size_key));
+                    repositionNodeP(list_files, mf->key, mf->size_key);
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : successful file chaining operation!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : successful file chaining operation!\n", tempo_dgb++, id_worker);
                     #endif
                     if(n_fe > 0){
                         char** array_p = (char **) malloc(n_fe * sizeof(char*));
@@ -1102,7 +1280,7 @@ void* workers( void* args ){
             }
             case _LF_O:{// if it's an 'lock file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : management of the file lock request!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : management of the file lock request!\n", tempo_dgb++, id_worker);
                 #endif
                 if(read_pathname(*fd_client_r, &pathname, &sz_p) == -1){
                     toClose = 1;
@@ -1111,14 +1289,17 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : LOCK FILE : request to lock the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : LOCK FILE : request to lock the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
                     resp = FAILED_O;
                     strncpy(reason, R_LF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to lock file, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failed to lock file, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -1139,7 +1320,7 @@ void* workers( void* args ){
                         repositionNodeP(list_files, mf->key);
                     #endif
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : successful file locking!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : successful file locking!\n", tempo_dgb++, id_worker);
                     #endif
                     goto fine_while;
                 }
@@ -1147,7 +1328,7 @@ void* workers( void* args ){
             }
             case _UF_O:{// if it's an 'unlock file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : management of the file unlock request!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : management of the file unlock request!\n", tempo_dgb++, id_worker);
                 #endif
                 if(read_pathname(*fd_client_r, &pathname, &sz_p) == -1){
                     toClose = 1;
@@ -1156,14 +1337,17 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : UNLOCK FILE : request to unlock the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : UNLOCK FILE : request to unlock the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
                     resp = FAILED_O;
                     strncpy(reason, R_UF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to unlock file:, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failed to unlock file:, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -1178,7 +1362,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_UF_LOCK, STR_LEN-1);
                         #ifdef PRINT_INFO
-                            fprintf(stdout, "[%ld] : failed to unlock file:, reason: '%s'\n", tempo_dgb++, reason);
+                            fprintf(stdout, "[%ld] - [Worker:%d] : failed to unlock file:, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -1198,7 +1382,7 @@ void* workers( void* args ){
                         repositionNodeP(list_files, mf->key);
                     #endif
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : successful file unlocking!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : successful file unlocking!\n", tempo_dgb++, id_worker);
                     #endif
                     goto fine_while;
                 }
@@ -1206,7 +1390,7 @@ void* workers( void* args ){
             }
             case _CF_O:{// if it's an 'close file' request
                 #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : management of request to close files\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : management of request to close files\n", tempo_dgb++, id_worker);
                 #endif
                 if(read_pathname(*fd_client_r, &pathname, &sz_p) == -1){
                     toClose = 1;
@@ -1215,14 +1399,17 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : CLOSE FILE : request to close the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : CLOSE FILE : request to close the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
                     resp = FAILED_O;
                     strncpy(reason, R_LF_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : failed to close file:, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : failed to close file:, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -1244,7 +1431,7 @@ void* workers( void* args ){
                         repositionNodeP(list_files, mf->key);
                     #endif
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : successful file closing!\n", tempo_dgb++);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : successful file closing!\n", tempo_dgb++, id_worker);
                     #endif
                     goto fine_while;
                 }
@@ -1252,7 +1439,7 @@ void* workers( void* args ){
             }
             case _RFI_O:{// if it's an 'remove file' request
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : handling of file removal requests\n", tempo_dgb++);
+                fprintf(stdout, "[%ld] - [Worker:%d] : handling of file removal requests\n", tempo_dgb++, id_worker);
                 #endif
                 if(read_pathname(*fd_client_r, &pathname, &sz_p) == -1){
                     toClose = 1;
@@ -1261,14 +1448,17 @@ void* workers( void* args ){
 
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : REQUEST : REMOVE FILE : request to remove the file '%s'\n", asctime(localtime(&tm)), pathname);
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : REQUEST : REMOVE FILE : request to remove the file '%s'\n", str_tm, pathname);
                 #endif
 
                 if((mf = hash_find(files_server, pathname)) == NULL){
                     resp = FAILED_O;
-                    strncpy(reason, R_LF_EXIST, STR_LEN-1);
+                    strncpy(reason, R_RFI_EXIST, STR_LEN-1);
                     #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : file removal failed, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : file removal failed, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                     #endif
                     if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                         toClose = 1;
@@ -1281,9 +1471,9 @@ void* workers( void* args ){
                 }else{
                     if(!file_has_lock(mf, *fd_client_r)){
                         resp = FAILED_O;
-                        strncpy(reason, R_LF_LOCK, STR_LEN-1);
+                        strncpy(reason, R_RFI_LOCK, STR_LEN-1);
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : file removal failed, reason: '%s'\n", tempo_dgb++, reason);
+                        fprintf(stdout, "[%ld] - [Worker:%d] : file removal failed, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -1299,7 +1489,7 @@ void* workers( void* args ){
                         resp = FAILED_O;
                         strncpy(reason, R_LF_EXIST, STR_LEN-1);
                         #ifdef PRINT_INFO
-                            fprintf(stdout, "[%ld] : file removal failed, reason: '%s'\n", tempo_dgb++, reason);
+                            fprintf(stdout, "[%ld] - [Worker:%d] : file removal failed, reason: '%s'\n", tempo_dgb++, id_worker, reason);
                         #endif
                         if((writen(*fd_client_r, &resp, sizeof(int))) == -1){
                             toClose = 1;
@@ -1316,7 +1506,7 @@ void* workers( void* args ){
                         toClose = 1;
                     }
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : successful file removal\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Worker:%d] : successful file removal\n", tempo_dgb++, id_worker);
                     #endif
                     #ifdef _LRU_POLICY_
                         repositionNodeP(list_files, mf->key);
@@ -1327,7 +1517,7 @@ void* workers( void* args ){
             }
             default:{
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : ERROR: request not recognized --> disconnection with the client!\n", tempo_dgb++);
+                fprintf(stdout, "[%ld] - [Worker:%d] : ERROR: request not recognized --> disconnection with the client!\n", tempo_dgb++, id_worker);
                 #endif
                 toClose = 1;
                 goto fine_while;
@@ -1365,14 +1555,14 @@ void master( void ){
     int i, err;
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : Creating a file descriptor container.\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : Creating a file descriptor container.\n", tempo_dgb++);
     #endif
     fd_set set, tmpset;
     FD_ZERO(&set);
     FD_ZERO(&tmpset);
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : Creation and configuration of the server communication channel with clients in progress...\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : Creation and configuration of the server communication channel with clients in progress...\n", tempo_dgb++);
     #endif
     struct sockaddr_un server_addr;
     memset(&server_addr, '0', sizeof(server_addr));
@@ -1389,9 +1579,9 @@ void master( void ){
     FD_SET(fd_socket, &set);
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : finished creation and configuration of the server communication channel with clients.\n",tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : finished creation and configuration of the server communication channel with clients.\n",tempo_dgb++);
 
-    fprintf(stdout, "[%ld] : configuration of the methods of creation and functioning of threads in progress...\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : configuration of the methods of creation and functioning of threads in progress...\n", tempo_dgb++);
     #endif
 
     SYSCALL_EXIT_EQ("pipe", err, pipe(canale), -1, "");
@@ -1403,35 +1593,34 @@ void master( void ){
     SYSCALL_EXIT_NEQ("pthread_attr_init", err, pthread_attr_init(&thread_attr), 0, "");
     SYSCALL_EXIT_NEQ("pthread_attr_setdetachstate", err, pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED), 0, "");
 
-    /*
-    thread_id = (pthread_t *) malloc(settings_server.thread_workers * sizeof(pthread_t));
-    for(i=0; i<settings_server.thread_workers; i++)
-        thread_id[i] = -1;
-    */
-
-    SYSCALL_EXIT_EQ("init_struct_count_elem", threads_created, init_struct_count_elem(), NULL, "");
 
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : configuration of the methods of creation and functioning of the finished threads.\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : configuration of the methods of creation and functioning of the finished threads.\n", tempo_dgb++);
 
-    fprintf(stdout, "[%ld] : beginning of acceptance of requests.\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Master] : beginning of acceptance of requests.\n", tempo_dgb++);
     #endif
 
-    SYSCALL_EXIT_EQ("init_struct_count_elem", clients_connected, init_struct_count_elem(), NULL, "");
 
     SYSCALL_EXIT_EQ("hash_create", files_server, hash_create( DIM_HASH_TABLE, &hash_function_for_file_t, &hash_key_compare_for_file_t ) , NULL, "")
 
     SYSCALL_EXIT_EQ("initBuffer", buffer_request, initBuffer(), NULL, "");
 
-    SYSCALL_EXIT_EQ("initBuffer", list_files, initQueueP(), NULL, "");
+    SYSCALL_EXIT_EQ("initQueueP", list_files, initQueueP(), NULL, "");
 
-    SYSCALL_EXIT_EQ("init_hash_info_files", err, init_hash_info_files(), -1, "");
+    // SYSCALL_EXIT_EQ("init_hash_info_files", err, init_hash_info_files(), -1, "");
 
     int fdmax = canale[0];
 
     do{
         tmpset = set;
-        SYSCALL_EXIT_EQ("select", err, select(fdmax+1, &tmpset, NULL, NULL, NULL), -1, "");
+        if(select(fdmax+1, &tmpset, NULL, NULL, NULL) == -1){
+            if(errno == EINTR){ // if a signal was caught (see signal(7))
+                continue;
+            }else{
+                perror("select");
+                return;
+            }
+        }
 
         if(close_server || finish_work) break;
 
@@ -1442,32 +1631,32 @@ void master( void ){
                 // if it is a new connection request
                 if(i == fd_socket){
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : A new connection request has arrived!\n", tempo_dgb++);
+                    fprintf(stdout, "[%ld] - [Master] : A new connection request has arrived!\n", tempo_dgb++);
                     #endif
                     #ifdef PRINT_LOG
                         tm = time(NULL);
-                        fprintf(fd_log, "[%s] : CLIENT : A new connection request has arrived!\n", asctime(localtime(&tm)));
+                        memset(str_tm, '\0', 30);
+                        assert(asctime_r(localtime(&tm), str_tm));
+                        str_tm[strcspn(str_tm, "\n")] = '\0';
+                        fprintf(fd_log, "[%s] : CLIENT : A new connection request has arrived!\n", str_tm);
                     #endif
                     // check if I have reached the limit number of clients connected at the same time
-                    pthread_mutex_lock(&clients_connected->lock);
-                    if(clients_connected->count >= settings_server.concurrent_clients){
-                        pthread_mutex_unlock(&clients_connected->lock);
+
+                    if(get_num_client() >= settings_server.concurrent_clients){
                         continue;
                     }else{
-                        int c1 = ++clients_connected->count;
-                        pthread_mutex_unlock(&clients_connected->lock);
+                        inc_num_client();
+                        int c1 = get_num_client();
                         SYSCALL_EXIT_EQ("accept", connfd, accept(fd_socket, (struct sockaddr *)NULL, NULL), -1, "");
                         FD_SET(connfd, &set);
                         if(connfd > fdmax) fdmax = connfd;
-                        pthread_mutex_lock(&threads_created->lock);
-                        if(threads_created->count < (c1 + 3)){
+                        if(get_num_threads() < (c1 + 3)){
                             if(pthread_create(&thread_id, &thread_attr, workers, (void *) NULL) != 0){
                                 fprintf(stderr, "pthread_create FAILED\n");
                             }else{
-                                threads_created->count++;
+                                inc_num_threads();
                             }
                         }
-                        pthread_mutex_unlock(&threads_created->lock);
                         continue;
                     }
                 }
@@ -1475,7 +1664,7 @@ void master( void ){
                 // if it is the worker thread who has finished handling a client request
                 if(i == canale[0]){
                     #ifdef PRINT_INFO
-                    fprintf(stdout, "[%ld] : Channel '%d' thread has finished handling a client request!\n", tempo_dgb++, i);
+                    fprintf(stdout, "[%ld] - [Master] : Channel '%d' thread has finished handling a client request!\n", tempo_dgb++, i);
                     #endif
                     int toClose = 0;
                     SYSCALL_EXIT_EQ("read", err, read(canale[0], &connfd, sizeof(long)), -1, "");
@@ -1485,53 +1674,62 @@ void master( void ){
                         if(connfd > fdmax) fdmax = connfd;
                     }else{
                         #ifdef PRINT_INFO
-                        fprintf(stdout, "[%ld] : Closing connection with client '%ld'!\n", tempo_dgb++, connfd);
+                        fprintf(stdout, "[%ld] - [Master] : Closing connection with client '%ld'!\n", tempo_dgb++, connfd);
                         #endif
                         #ifdef PRINT_LOG
                             tm = time(NULL);
-                            fprintf(fd_log, "[%s] : CLIENT : Closing connection with a client!\n", asctime(localtime(&tm)));
+                            memset(str_tm, '\0', 30);
+                            assert(asctime_r(localtime(&tm), str_tm));
+                            str_tm[strcspn(str_tm, "\n")] = '\0';
+                            fprintf(fd_log, "[%s] : CLIENT : Closing connection with a client!\n", str_tm);
                         #endif
-                        pthread_mutex_lock(&clients_connected->lock);
-                        clients_connected->count--;
-                        pthread_mutex_unlock(&clients_connected->lock);
+                        dec_num_client();
                     }
                     continue;
                 }
 
                 #ifdef PRINT_INFO
-                fprintf(stdout, "[%ld] : A new request from the client of channel '%d' has arrived!\n", tempo_dgb++, i);
+                fprintf(stdout, "[%ld] - [Master] : A new request from the client of channel '%d' has arrived!\n", tempo_dgb++, i);
                 #endif
                 #ifdef PRINT_LOG
                     tm = time(NULL);
-                    fprintf(fd_log, "[%s] : CLIENT : A new request arrived\n", asctime(localtime(&tm)));
+                    memset(str_tm, '\0', 30);
+                    assert(asctime_r(localtime(&tm), str_tm));
+                    str_tm[strcspn(str_tm, "\n")] = '\0';
+                    fprintf(fd_log, "[%s] : CLIENT : A new request arrived\n", str_tm);
                 #endif
 
                 // if it is a generic request from a client
                 connfd = i;
                 // int* fd_client_request;
                 FD_CLR(connfd, &set);
-                pushBuffer(buffer_request, (void *) &connfd, sizeof(int));
+                pushBuffer(buffer_request, (void *) &connfd, sizeof(long));
             }
         }
 
     }while(!close_server && !finish_work);
 
-    pthread_mutex_lock(&threads_created->lock);
-    while(threads_created->count > 0){
-        pthread_cond_wait(&threads_created->cond, &threads_created->lock);
-    }
-    pthread_mutex_unlock(&threads_created->lock);
+    #ifdef PRINT_INFO
+    if(close_server) fprintf(stdout, "[%ld] - [Master] : Reception of the forced shutdown signal of the server!\n", tempo_dgb++);
+    if(finish_work) fprintf(stdout, "[%ld] - [Master] : Reception of the normal shutdown signal of the server!\n", tempo_dgb++);
+    #endif
 
+    unsigned long n = get_num_threads();
+    long f = -1;
+    while(n > 0){
+        pushBuffer(buffer_request, (void *) &f, sizeof(long));
+        n--;
+    }
+    while(get_num_threads() > 0);
     close(canale[0]);
     close(canale[1]);
 
     SYSCALL_EXIT_NEQ("pthread_attr_destroy", err, pthread_attr_destroy(&thread_attr), 0, "");
-    free(threads_created);
-    free(clients_connected);
-    destroy_info_files();
+    //destroy_info_files();
     SYSCALL_EXIT_EQ("hash_destroy", err, hash_destroy(files_server), -1, "");
     //SYSCALL_EXIT_EQ("deleteQueue", err, deleteQueue(buffer_request), void, "");
     deleteBuffer(buffer_request);
+    deleteQueueP(list_files);
 }
 
 /******************************* main function *******************************/
@@ -1549,10 +1747,10 @@ int main(int argc, char** argv){
     sig.sa_handler = sigterm;
     sigemptyset(&sig.sa_mask);
     sig.sa_flags = SA_RESTART;
-    sigaction(SIGINT, &sig, NULL);
-    sigaction(SIGQUIT, &sig, NULL);
-    sigaction(SIGHUP, &sig, NULL);
-    sigaction(SIGPIPE, &sig, NULL);
+    if(sigaction(SIGINT, &sig, NULL)  == -1) return EXIT_FAILURE;
+    if(sigaction(SIGQUIT, &sig, NULL) == -1) return EXIT_FAILURE;
+    if(sigaction(SIGHUP, &sig, NULL)  == -1) return EXIT_FAILURE;
+    if(sigaction(SIGPIPE, &sig, NULL) == -1) return EXIT_FAILURE;
 
     int err;
 
@@ -1562,22 +1760,43 @@ int main(int argc, char** argv){
     SYSCALL_EXIT_EQ("fopen", fd_log, fopen(settings_server.log_file_name, "w+"), NULL, "fopen");
 
     #ifdef PRINT_INFO
-        fprintf(stdout, "[%ld] : Server startup!\n", tempo_dgb++);
+        fprintf(stdout, "[%ld] - [Server] : Server startup!\n", tempo_dgb++);
     #endif
     #ifdef PRINT_LOG
         tm = time(NULL);
-        fprintf(fd_log, "[%s] : SERVER : Server startup!\n", asctime(localtime(&tm)));
+        memset(str_tm, '\0', 30);
+        assert(asctime_r(localtime(&tm), str_tm));
+        str_tm[strcspn(str_tm, "\n")] = '\0';
+        fprintf(fd_log, "[%s] : SERVER : Server startup!\n", str_tm);
     #endif
 
     master();
 
+    #ifdef PRINT_LOG
+        tm = time(NULL);
+        memset(str_tm, '\0', 30);
+        assert(asctime_r(localtime(&tm), str_tm));
+        str_tm[strcspn(str_tm, "\n")] = '\0';
+        fprintf(fd_log, "[%s] : SERVER : RESUME : client = %ld and space = %ld\n", str_tm, client_all_server, space_all_server);
+    #endif
+
+    cancel_cfs();
+
     #ifdef PRINT_INFO
-    fprintf(stdout, "[%ld] : Server closed!\n", tempo_dgb++);
+    fprintf(stdout, "[%ld] - [Server] : Server closed!\n", tempo_dgb++);
     #endif
     #ifdef PRINT_LOG
         tm = time(NULL);
-        fprintf(fd_log, "[%s] : SERVER : Server closed!\n", asctime(localtime(&tm)));
+        memset(str_tm, '\0', 30);
+        assert(asctime_r(localtime(&tm), str_tm));
+        str_tm[strcspn(str_tm, "\n")] = '\0';
+        fprintf(fd_log, "[%s] : SERVER : Server closed!\n", str_tm);
     #endif
+    fflush(stdout);
+    fflush(stderr);
+    fflush(fd_log);
+    SYSCALL_EXIT_EQ("fclose", err, fclose(fd_log), -1, "fclose");
+    //if(fd_log) free(fd_log);
 
     return 0;
 }

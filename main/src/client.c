@@ -282,9 +282,9 @@ int do_cmd_w( char* arg, long n ){
     arg_list *prev = NULL;
     while(corr != NULL){
         if(openFile(corr->arg, O_CREATE_LOCK) == -1){
-
+            fprintf(stderr, "ERROR: Request to write file '%s' failed\n", corr->arg);
         }else if(writeFile(corr->arg, dirname_D) == -1){
-
+            fprintf(stderr, "ERROR: Request to write file '%s' failed\n", corr->arg);
         }
         prev = corr;
         corr = corr->next;
@@ -320,14 +320,16 @@ int do_cmd_W( char** args, long n ){
         if(openFile(path, O_CREATE_LOCK) == -1){
             switch(errno){
                 case EINVAL:{
+                    fprintf(stderr, "ERROR: Request to write file failed : invalid pathname\n");
                     break;
                 }
                 case EOPNOTSUPP:{
+                    fprintf(stderr, "ERROR: Request to write file failed : flag non ricognized\n");
                     break;
                 }
             }
         }else if(writeFile(path, dirname_D) == -1){
-
+            fprintf(stderr, "ERROR: Request to write file '%s' failed\n", path);
         }
     }
 
@@ -378,17 +380,21 @@ int do_cmd_r( char** args, long n ){
         }
 
         size_t sz;
-        if(openFile(path, O_CREATE_LOCK) == -1){
-
-        }else if(readFile(path, (void **) &buf_read, &sz) == -1){
-
+        if(readFile(path, (void **) &buf_read, &sz) == -1){
+            fprintf(stderr, "ERROR: failed to read file '%s' to server\n", path);
         }else{
             char* p = NULL;
-            if(write_file(p, buf_read, sz) == -1){
-
+            p = getNameFile(path);
+            if(p == NULL){
+                continue;
             }
+            char* final_p = NULL;
+            final_p = setNameFile(dirname_d, p);
+            if(write_file(final_p, buf_read, sz) == -1){
+                fprintf(stdout, "ERROR: writing to the folder on purpose of the content read on the server failed\n");
+            }
+            if(final_p) free(final_p);
         }
-        fprintf(stdout, "contents of file '%s' read on server:%s\n", path, buf_read);
         if(buf_read) free(buf_read);
     }
 
@@ -597,6 +603,8 @@ int main(int argc, char** argv){
     if(connect_to_server(sockname) == -1){
         goodEnd = 0;
         goto endClient;
+    }else{
+        isConnect = 1;
     }
     if(print_operation) fprintf(stdout, "[%ld] Connection to server successful.\n", timeToPrint);
 
